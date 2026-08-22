@@ -18,13 +18,13 @@ Task → Worker (investigate/implement) → Tests → Arbiter (review) → Accep
 ## Install
 
 ```bash
-pip install git+https://github.com/FlossWare/personal-agent.git
+pip install git+https://github.com/sfloess/personal-agent.git
 ```
 
 Or for development:
 
 ```bash
-git clone https://github.com/FlossWare/personal-agent.git
+git clone https://github.com/sfloess/personal-agent.git
 cd personal-agent
 pip install -e ".[dev]"
 ```

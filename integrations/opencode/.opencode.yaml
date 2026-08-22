@@ -1,0 +1,31 @@
+# OpenCode configuration for personal-agent integration
+#
+# Place this file at the root of your project alongside AGENTS.md.
+# OpenCode will use AGENTS.md for agent instructions.
+
+agents:
+  personal-agent:
+    description: "AI coding agent with worker/arbiter loop (free models only)"
+    command: "pa"
+    args:
+      - "--repo"
+      - "."
+    env:
+      - COHERE_API_KEY
+      - GROQ_API_KEY
+      - OPENROUTER_API_KEY
+      - CEREBRAS_API_KEY
+      - GEMINI_API_KEY
+
+tools:
+  pa-review:
+    description: "Run independent AI review on current changes"
+    command: "pa --investigate 'Review changes for correctness' --repo . --json"
+
+  pa-fix:
+    description: "Fix an issue using worker/arbiter loop"
+    command: "pa '{description}' --repo . -c '{test_command}' --json"
+
+  pa-investigate:
+    description: "Investigate codebase without making changes"
+    command: "pa --investigate '{question}' --repo . --json"

@@ -1,0 +1,44 @@
+#!/usr/bin/env bash
+# Pre-commit hook: runs personal-agent review on staged changes.
+# Copy to .git/hooks/pre-commit and chmod +x.
+#
+# This hook WARNS but does not block commits.
+# To make it blocking, change exit 0 to exit 1 on HIGH/CRITICAL findings.
+
+set -euo pipefail
+
+if ! command -v pa &>/dev/null; then
+    exit 0
+fi
+
+DIFF=$(git diff --cached --diff-filter=ACMR)
+if [ -z "$DIFF" ]; then
+    exit 0
+fi
+
+echo "Running personal-agent review on staged changes..."
+
+RESULT=$(pa --investigate "Review these staged changes for critical bugs and security issues. Be concise." --repo . --json 2>/dev/null || true)
+
+if [ -z "$RESULT" ]; then
+    exit 0
+fi
+
+FINDINGS=$(echo "$RESULT" | python3 -c "
+import json, sys
+try:
+    data = json.load(sys.stdin)
+    for f in data.get('findings', []):
+        print(f'  - {f}')
+except Exception:
+    pass
+" 2>/dev/null || true)
+
+if [ -n "$FINDINGS" ]; then
+    echo ""
+    echo "personal-agent findings:"
+    echo "$FINDINGS"
+    echo ""
+fi
+
+exit 0

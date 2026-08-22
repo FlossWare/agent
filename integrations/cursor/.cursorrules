@@ -1,0 +1,42 @@
+# Personal Agent Integration for Cursor
+
+## Code Review
+Before committing changes, run personal-agent for an independent review:
+```bash
+pa --investigate "Review changes for correctness and security" --repo . --json
+```
+
+## Fix Issues
+Use the full worker/arbiter loop to fix problems:
+```bash
+pa "Fix the issue described here" --repo . -c "pytest tests/" --max-iter 3
+```
+
+## Investigation
+Investigate the codebase without changes:
+```bash
+pa --investigate "Explain the architecture of this module" --repo .
+```
+
+## Python API
+```python
+import asyncio
+from personal_agent import CodingAgent, Task, Decision
+
+async def review():
+    agent = CodingAgent(".")
+    result = await agent.run(Task(
+        description="Fix the failing test",
+        commands=["pytest tests/"],
+    ))
+    if result.decision == Decision.ACCEPT:
+        print(result.final_diff)
+
+asyncio.run(review())
+```
+
+## Environment
+Set at least one free provider key: COHERE_API_KEY, GROQ_API_KEY, OPENROUTER_API_KEY, CEREBRAS_API_KEY, or GEMINI_API_KEY.
+
+## Free Models Only
+This tool uses free LLM APIs exclusively. No paid API keys required.
