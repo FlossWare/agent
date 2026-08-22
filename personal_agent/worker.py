@@ -208,12 +208,39 @@ class Worker:
         start = text.find("{")
         end = text.rfind("}") + 1
         if start >= 0 and end > start:
+            candidate = text[start:end]
             try:
-                return json.loads(text[start:end])
+                return json.loads(candidate)
             except json.JSONDecodeError:
-                pass
+                fixed = self._fix_malformed_json(candidate)
+                if fixed is not None:
+                    return fixed
 
         return {"plan": text, "findings": [], "changes": [], "commands_to_run": []}
+
+    @staticmethod
+    def _fix_malformed_json(text: str) -> dict | None:
+        """Handle common LLM JSON mistakes like triple-quoted strings."""
+        import re
+
+        def _replace_triple_quote(m: re.Match) -> str:
+            inner = m.group(1)
+            # Inner content may already have \" escapes from the LLM —
+            # unescape first, then re-escape properly for JSON.
+            inner = inner.replace('\\"', '"')
+            return json.dumps(inner)
+
+        fixed = re.sub(r'"""(.*?)"""', _replace_triple_quote, text, flags=re.DOTALL)
+        try:
+            return json.loads(fixed)
+        except json.JSONDecodeError:
+            pass
+        # Try removing trailing commas before } or ]
+        fixed2 = re.sub(r',\s*([}\]])', r'\1', fixed)
+        try:
+            return json.loads(fixed2)
+        except json.JSONDecodeError:
+            return None
 
     DANGEROUS_PATTERNS = [
         "rm -rf /", "rm -rf /*", "rm -rf ~",

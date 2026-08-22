@@ -8,8 +8,11 @@ is not installed or no API keys are available.
 
 from __future__ import annotations
 
+import json
 import logging
 import os
+import urllib.request
+from dataclasses import dataclass, field as dc_field
 from typing import Any
 
 logger = logging.getLogger(__name__)
@@ -41,6 +44,34 @@ FREE_PROVIDERS = {
     },
 }
 
+PROVIDER_CONFIGS = [
+    {
+        "name": "cohere",
+        "env": "COHERE_API_KEY",
+        "url": "https://api.cohere.com/v2/chat",
+        "model": "command-a-03-2025",
+        "is_cohere": True,
+    },
+    {
+        "name": "groq",
+        "env": "GROQ_API_KEY",
+        "url": "https://api.groq.com/openai/v1/chat/completions",
+        "model": "qwen/qwen3.6-27b",
+    },
+    {
+        "name": "openrouter",
+        "env": "OPENROUTER_API_KEY",
+        "url": "https://openrouter.ai/api/v1/chat/completions",
+        "model": "google/gemma-4-31b-it:free",
+    },
+    {
+        "name": "cerebras",
+        "env": "CEREBRAS_API_KEY",
+        "url": "https://api.cerebras.ai/v1/chat/completions",
+        "model": "llama-3.3-70b",
+    },
+]
+
 
 def create_free_router(
     *,
@@ -53,14 +84,7 @@ def create_free_router(
     model-router-ai with free-only policy.
 
     If model-router-ai is not available, returns a SimpleFreeRouter
-    that calls providers directly.
-
-    Parameters
-    ----------
-    max_monthly:
-        Budget cap (0 = unlimited for free models).
-    extra_providers:
-        Additional provider_name -> env_var_name mappings.
+    that calls providers directly with automatic fallback.
     """
     try:
         return _create_model_router_ai(max_monthly, extra_providers)
@@ -131,17 +155,25 @@ def _create_model_router_ai(
     return router
 
 
+@dataclass
+class _Response:
+    content: str = ""
+    model: str = ""
+    provider: str = ""
+    usage: dict = dc_field(default_factory=dict)
+    latency_ms: float = 0.0
+    cost_usd: float = 0.0
+
+
 class SimpleFreeRouter:
     """Minimal fallback router when model-router-ai is not installed.
 
-    Calls a single provider's OpenAI-compatible API directly.
+    Tries multiple providers in order, falling back on API errors.
+    Supports both OpenAI-compatible and Cohere APIs.
     """
 
-    def __init__(self, provider: str, api_key: str, base_url: str, model: str) -> None:
-        self._provider = provider
-        self._api_key = api_key
-        self._base_url = base_url
-        self._model = model
+    def __init__(self, providers: list[dict]) -> None:
+        self._providers = providers
 
     async def initialize(self) -> None:
         pass
@@ -153,16 +185,42 @@ class SimpleFreeRouter:
         model: str | None = None,
         temperature: float = 0.7,
         max_tokens: int | None = None,
-    ) -> Any:
-        import json
-        import urllib.request
+    ) -> _Response:
+        normalized = [
+            {"role": m["role"], "content": m["content"]}
+            if isinstance(m, dict)
+            else {"role": m.role, "content": m.content}
+            for m in messages
+        ]
 
-        url = f"{self._base_url}/chat/completions"
-        body = {
-            "model": model or self._model,
-            "messages": [{"role": m["role"], "content": m["content"]}
-                         if isinstance(m, dict) else {"role": m.role, "content": m.content}
-                         for m in messages],
+        errors = []
+        for provider in self._providers:
+            try:
+                return self._call_provider(
+                    provider, normalized,
+                    model=model, temperature=temperature, max_tokens=max_tokens,
+                )
+            except Exception as e:
+                logger.warning("Provider %s failed: %s", provider["name"], e)
+                errors.append((provider["name"], str(e)))
+
+        raise RuntimeError(
+            "All providers failed:\n"
+            + "\n".join(f"  {name}: {err}" for name, err in errors)
+        )
+
+    def _call_provider(
+        self,
+        provider: dict,
+        messages: list[dict],
+        *,
+        model: str | None,
+        temperature: float,
+        max_tokens: int | None,
+    ) -> _Response:
+        body: dict[str, Any] = {
+            "model": model or provider["model"],
+            "messages": messages,
             "temperature": temperature,
         }
         if max_tokens:
@@ -170,31 +228,31 @@ class SimpleFreeRouter:
 
         data = json.dumps(body).encode()
         req = urllib.request.Request(
-            url,
+            provider["url"],
             data=data,
             headers={
                 "Content-Type": "application/json",
-                "Authorization": f"Bearer {self._api_key}",
+                "Authorization": f"Bearer {provider['key']}",
             },
         )
         with urllib.request.urlopen(req, timeout=120) as resp:
             result = json.loads(resp.read())
 
-        from dataclasses import dataclass, field as dc_field
-
-        @dataclass
-        class _Response:
-            content: str = ""
-            model: str = ""
-            provider: str = ""
-            usage: dict = dc_field(default_factory=dict)
-            latency_ms: float = 0.0
-            cost_usd: float = 0.0
+        if provider.get("is_cohere"):
+            content = result.get("message", {}).get("content", [{}])
+            if isinstance(content, list) and content:
+                content = content[0].get("text", "")
+            elif isinstance(content, str):
+                pass
+            else:
+                content = str(content)
+        else:
+            content = result["choices"][0]["message"]["content"]
 
         return _Response(
-            content=result["choices"][0]["message"]["content"],
-            model=result.get("model", self._model),
-            provider=self._provider,
+            content=content,
+            model=result.get("model", provider["model"]),
+            provider=provider["name"],
             usage=result.get("usage", {}),
         )
 
@@ -203,17 +261,21 @@ class SimpleFreeRouter:
 
 
 def _create_simple_router() -> SimpleFreeRouter:
-    providers = [
-        ("groq", "GROQ_API_KEY", "https://api.groq.com/openai/v1", "llama-3.3-70b-versatile"),
-        ("cerebras", "CEREBRAS_API_KEY", "https://api.cerebras.ai/v1", "llama-3.3-70b"),
-        ("openrouter", "OPENROUTER_API_KEY", "https://openrouter.ai/api/v1", "meta-llama/llama-3.3-70b-instruct:free"),
-    ]
-    for name, env, url, model in providers:
-        key = os.environ.get(env, "")
+    available = []
+    for cfg in PROVIDER_CONFIGS:
+        key = os.environ.get(cfg["env"], "")
         if key:
-            return SimpleFreeRouter(name, key, url, model)
+            available.append({**cfg, "key": key})
 
-    raise RuntimeError(
-        "No API keys found. Set at least one of: "
-        + ", ".join(c["env"] for c in FREE_PROVIDERS.values())
+    if not available:
+        raise RuntimeError(
+            "No API keys found. Set at least one of: "
+            + ", ".join(c["env"] for c in FREE_PROVIDERS.values())
+        )
+
+    logger.info(
+        "SimpleFreeRouter with %d providers: %s",
+        len(available),
+        ", ".join(p["name"] for p in available),
     )
+    return SimpleFreeRouter(available)

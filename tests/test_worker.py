@@ -172,6 +172,39 @@ class TestWorker:
         assert result.plan != ""
         assert result.changes == []
 
+    @pytest.mark.asyncio
+    async def test_parse_response_handles_triple_quoted_json(self, git_repo, mock_router):
+        raw = '```json\n{"plan": "fix", "findings": [], "changes": [{"path": "x.py", "action": "modify", "content": """def hello():\n    return 1\n"""}], "commands_to_run": []}\n```'
+        mock_router.chat.return_value = FakeResponse(content=raw)
+
+        worker = Worker(mock_router, git_repo)
+        task = Task(description="Test triple-quote fix", repo_path=str(git_repo.path))
+        result = await worker.investigate(task)
+
+        assert result.plan == "fix"
+        assert len(result.changes) == 1
+        assert "def hello" in result.changes[0].content
+
+    def test_fix_malformed_json_triple_quotes(self):
+        text = '{"key": """hello\nworld""", "other": 1}'
+        result = Worker._fix_malformed_json(text)
+        assert result is not None
+        assert "hello\nworld" in result["key"]
+        assert result["other"] == 1
+
+    def test_fix_malformed_json_escaped_inner_quotes(self):
+        text = r'{"content": """\"\"\"docstring\"\"\"\nx = 1"""}'
+        result = Worker._fix_malformed_json(text)
+        assert result is not None
+        assert '"""docstring"""' in result["content"]
+        assert "x = 1" in result["content"]
+
+    def test_fix_malformed_json_trailing_comma(self):
+        text = '{"a": 1, "b": 2, }'
+        result = Worker._fix_malformed_json(text)
+        assert result is not None
+        assert result["a"] == 1
+
     def test_is_dangerous(self):
         assert Worker._is_dangerous("rm -rf /")
         assert Worker._is_dangerous("rm -rf /*")

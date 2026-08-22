@@ -7,6 +7,9 @@ in real repositories -- using free models only.
 
 from personal_agent.types import (
     ArbiterDecision,
+    Decision,
+    FileChange,
+    CommandResult,
     Task,
     TaskResult,
     WorkerResult,
@@ -22,6 +25,9 @@ __all__ = [
     "Arbiter",
     "ArbiterDecision",
     "CodingAgent",
+    "CommandResult",
+    "Decision",
+    "FileChange",
     "Task",
     "TaskResult",
     "Worker",
