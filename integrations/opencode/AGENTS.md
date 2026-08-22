@@ -1,6 +1,6 @@
 ## Personal Agent
 
-AI coding agent using free LLM models for code review and implementation.
+AI coding agent using free-tier LLM models for code review and implementation.
 
 ### Commands
 
@@ -8,17 +8,19 @@ AI coding agent using free LLM models for code review and implementation.
 # Full worker/arbiter loop
 pa "Fix the failing test in test_auth.py" --repo . -c "pytest tests/"
 
-# Investigation only
+# Investigation only (no changes)
 pa --investigate "What are the main components?" --repo .
 
 # Auto-commit on acceptance
 pa "Add input validation" --repo . --commit
 
-# JSON output
+# JSON output for programmatic use
 pa "Refactor the database module" --repo . --json
 ```
 
 ### Python API
+
+All methods are async:
 
 ```python
 import asyncio
@@ -38,14 +40,14 @@ asyncio.run(main())
 
 ### API Keys
 
-Set at least one free provider key:
-- `COHERE_API_KEY` — Cohere (recommended, most reliable)
+Set at least one free-tier provider key:
+- `COHERE_API_KEY` — Cohere (recommended — most reliable)
 - `GROQ_API_KEY` — Groq (fast inference)
 - `OPENROUTER_API_KEY` — OpenRouter (free-tier models)
 - `CEREBRAS_API_KEY` — Cerebras
 - `GEMINI_API_KEY` — Google Gemini
 
-Set multiple keys for automatic failover.
+Set multiple keys for automatic failover. No paid API keys required.
 
 ### Workflow
 

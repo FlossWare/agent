@@ -9,9 +9,10 @@ Use [personal-agent](https://github.com/sfloess/personal-agent) with OpenCode or
    pip install git+https://github.com/sfloess/personal-agent.git
    ```
 
-2. Set at least one free provider key:
+2. Set at least one free-tier provider key:
    ```bash
-   export COHERE_API_KEY="your-key"
+   export COHERE_API_KEY="your-key"    # Recommended — most reliable
+   export GROQ_API_KEY="your-key"      # Fast inference
    ```
 
 3. Copy integration files to your project:
@@ -34,7 +35,7 @@ OpenCode reads `AGENTS.md` for agent instructions. Ask it to:
 
 ```bash
 # Review changes
-pa --investigate "Review my changes" --repo .
+pa --investigate "Review my changes for correctness" --repo .
 
 # Fix an issue
 pa "Fix the null pointer in user_service.py" --repo . -c "pytest"
@@ -43,6 +44,17 @@ pa "Fix the null pointer in user_service.py" --repo . -c "pytest"
 pa "Add retry logic to API calls" --repo . --json
 ```
 
+## Environment Variables
+
+Set at least one (all are free-tier access):
+- `COHERE_API_KEY` — Cohere (recommended — most reliable)
+- `GROQ_API_KEY` — Groq (fast inference)
+- `OPENROUTER_API_KEY` — OpenRouter (free-tier models)
+- `CEREBRAS_API_KEY` — Cerebras
+- `GEMINI_API_KEY` — Google Gemini
+
+Set multiple keys for automatic failover. No paid API keys required.
+
 ## How It Works
 
-Worker investigates → proposes changes → runs tests → arbiter reviews → accept/reject → retry → commit. All using free LLM models with automatic provider failover.
+Worker investigates → proposes changes → runs tests → arbiter reviews → accept/reject → retry → commit. All using free-tier LLM models with automatic provider failover.

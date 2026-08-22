@@ -1,6 +1,6 @@
 # Agent Integrations
 
-Ready-to-use configurations for integrating [personal-agent](https://github.com/FlossWare/personal-agent) with popular AI coding agents.
+Ready-to-use configurations for integrating [personal-agent](https://github.com/sfloess/personal-agent) with popular AI coding agents.
 
 ## Supported Agents
 
@@ -49,17 +49,17 @@ All integrations require:
 
 1. **personal-agent installed:**
    ```bash
-   pip install git+https://github.com/FlossWare/personal-agent.git
+   pip install git+https://github.com/sfloess/personal-agent.git
    ```
 
-2. **At least one free provider API key:**
+2. **At least one free-tier provider API key:**
    ```bash
-   export COHERE_API_KEY="your-key"    # Recommended
+   export COHERE_API_KEY="your-key"    # Recommended — most reliable
    export GROQ_API_KEY="your-key"      # Fast inference
    export OPENROUTER_API_KEY="your-key"
    ```
 
-Set multiple keys for automatic failover between providers.
+   All listed providers offer free-tier access — no paid API keys required. Set multiple keys for automatic failover between providers.
 
 ## Common Commands
 
@@ -67,7 +67,7 @@ These work from any agent's terminal:
 
 ```bash
 # Review current changes
-pa --investigate "Review for correctness" --repo .
+pa --investigate "Review changes for correctness" --repo .
 
 # Fix a specific issue
 pa "Fix the failing test" --repo . -c "pytest tests/"

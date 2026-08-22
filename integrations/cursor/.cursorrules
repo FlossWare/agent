@@ -3,7 +3,7 @@
 ## Code Review
 Before committing changes, run personal-agent for an independent review:
 ```bash
-pa --investigate "Review changes for correctness and security" --repo . --json
+pa --investigate "Review changes for correctness and security" --repo .
 ```
 
 ## Fix Issues
@@ -36,7 +36,4 @@ asyncio.run(review())
 ```
 
 ## Environment
-Set at least one free provider key: COHERE_API_KEY, GROQ_API_KEY, OPENROUTER_API_KEY, CEREBRAS_API_KEY, or GEMINI_API_KEY.
-
-## Free Models Only
-This tool uses free LLM APIs exclusively. No paid API keys required.
+Set at least one free-tier provider key: COHERE_API_KEY, GROQ_API_KEY, OPENROUTER_API_KEY, CEREBRAS_API_KEY, or GEMINI_API_KEY. All providers offer free-tier access — no paid keys required. Set multiple for automatic failover.

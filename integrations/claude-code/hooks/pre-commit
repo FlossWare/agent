@@ -3,11 +3,25 @@
 # Copy to .git/hooks/pre-commit and chmod +x.
 #
 # This hook WARNS but does not block commits.
-# To make it blocking, change exit 0 to exit 1 on HIGH/CRITICAL findings.
+# Set PA_STRICT=1 to block commits on findings.
 
 set -euo pipefail
 
 if ! command -v pa &>/dev/null; then
+    exit 0
+fi
+
+# Verify at least one API key is set
+HAS_KEY=0
+for var in COHERE_API_KEY GROQ_API_KEY OPENROUTER_API_KEY CEREBRAS_API_KEY GEMINI_API_KEY; do
+    if [ -n "${!var:-}" ]; then
+        HAS_KEY=1
+        break
+    fi
+done
+
+if [ "$HAS_KEY" -eq 0 ]; then
+    echo "personal-agent: no API keys set, skipping review"
     exit 0
 fi
 
@@ -39,6 +53,10 @@ if [ -n "$FINDINGS" ]; then
     echo "personal-agent findings:"
     echo "$FINDINGS"
     echo ""
+    if [ "${PA_STRICT:-0}" = "1" ]; then
+        echo "Commit blocked (PA_STRICT=1). Fix findings or unset PA_STRICT to proceed."
+        exit 1
+    fi
 fi
 
 exit 0

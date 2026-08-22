@@ -8,8 +8,8 @@ This project uses [personal-agent](https://github.com/sfloess/personal-agent) fo
 pip install git+https://github.com/sfloess/personal-agent.git
 ```
 
-Set at least one free provider key:
-- `COHERE_API_KEY` (recommended)
+Set at least one free provider key (all are free-tier access):
+- `COHERE_API_KEY` (recommended — most reliable)
 - `GROQ_API_KEY`
 - `OPENROUTER_API_KEY`
 - `CEREBRAS_API_KEY`
@@ -48,17 +48,23 @@ You: "What does the billing module do?"
 
 ### Python API
 
+All methods are async:
+
 ```python
+import asyncio
 from personal_agent import CodingAgent, Task, Decision
 
-agent = CodingAgent(".")
-result = await agent.run(Task(
-    description="Fix the bug in auth.py",
-    commands=["pytest tests/"],
-))
+async def main():
+    agent = CodingAgent(".")
+    result = await agent.run(Task(
+        description="Fix the bug in auth.py",
+        commands=["pytest tests/"],
+    ))
 
-if result.decision == Decision.ACCEPT:
-    print(result.final_diff)
+    if result.decision == Decision.ACCEPT:
+        print(result.final_diff)
+
+asyncio.run(main())
 ```
 
 ### Pre-commit Hook
@@ -67,4 +73,4 @@ Copy `hooks/pre-commit` to `.git/hooks/pre-commit` to automatically review stage
 
 ### Configuration
 
-All configuration is via environment variables. Set multiple provider keys for automatic failover.
+All configuration is via environment variables. Set multiple provider keys for automatic failover. All listed providers offer free-tier access — no paid API keys required.

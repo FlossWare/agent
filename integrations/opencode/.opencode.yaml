@@ -20,12 +20,12 @@ agents:
 tools:
   pa-review:
     description: "Run independent AI review on current changes"
-    command: "pa --investigate 'Review changes for correctness' --repo . --json"
+    command: 'pa --investigate "Review changes for correctness" --repo . --json'
 
   pa-fix:
     description: "Fix an issue using worker/arbiter loop"
-    command: "pa '{description}' --repo . -c '{test_command}' --json"
+    command: 'pa "Fix the described issue" --repo . --json'
 
   pa-investigate:
     description: "Investigate codebase without making changes"
-    command: "pa --investigate '{question}' --repo . --json"
+    command: 'pa --investigate "Investigate the codebase" --repo . --json'

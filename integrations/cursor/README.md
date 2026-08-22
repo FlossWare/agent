@@ -9,9 +9,9 @@ Use [personal-agent](https://github.com/sfloess/personal-agent) inside Cursor fo
    pip install git+https://github.com/sfloess/personal-agent.git
    ```
 
-2. Set at least one free provider key in your shell profile:
+2. Set at least one free-tier provider key in your shell profile:
    ```bash
-   export COHERE_API_KEY="your-key"    # Recommended
+   export COHERE_API_KEY="your-key"    # Recommended — most reliable
    export GROQ_API_KEY="your-key"      # Fast inference
    ```
 
@@ -34,7 +34,7 @@ Ask Cursor to use personal-agent:
 
 ```bash
 # Review current changes
-pa --investigate "Review changes" --repo .
+pa --investigate "Review changes for correctness" --repo .
 
 # Fix with worker/arbiter loop
 pa "Fix the failing test" --repo . -c "pytest"
@@ -54,4 +54,4 @@ Reference the `.cursorrules` file. Cursor will use the rules to suggest personal
 3. If rejected, the worker retries with arbiter feedback
 4. If accepted, changes are ready to commit
 
-All LLM calls go through free providers (Cohere, Groq, OpenRouter, Cerebras, Gemini). Multiple keys enable automatic failover.
+All LLM calls go through free-tier providers (Cohere, Groq, OpenRouter, Cerebras, Gemini). Multiple keys enable automatic failover. No paid API keys required.
