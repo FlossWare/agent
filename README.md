@@ -49,19 +49,40 @@ pa "Refactor the database module" --repo . --json
 
 ### Python API
 
+All `CodingAgent` methods are async. Use within an `async def` or wrap with `asyncio.run()`:
+
 ```python
+import asyncio
 from personal_agent import CodingAgent, Task, Decision
 
-agent = CodingAgent("/path/to/repo")
-result = await agent.run(Task(
-    description="Fix the bug in auth.py",
-    commands=["pytest tests/"],
-    max_iterations=3,
-))
+async def main():
+    agent = CodingAgent("/path/to/repo")
+    result = await agent.run(Task(
+        description="Fix the bug in auth.py",
+        commands=["pytest tests/"],
+        max_iterations=3,
+    ))
 
-if result.decision == Decision.ACCEPT:
-    print(result.final_diff)
-    print(result.commit_message)
+    if result.decision == Decision.ACCEPT:
+        print(result.final_diff)
+        print(result.commit_message)
+
+asyncio.run(main())
+```
+
+### Handling Rejections
+
+The `TaskResult` includes the full history of worker/arbiter iterations:
+
+```python
+result = await agent.run(task)
+
+if result.decision == Decision.REJECT:
+    print(f"Rejected after {result.iterations} iterations")
+    for d in result.arbiter_decisions:
+        print(f"  {d.decision.value}: {d.reason}")
+        for f in d.findings:
+            print(f"    [{f.severity}] {f.description}")
 ```
 
 ### Investigation Only
@@ -78,31 +99,43 @@ print(result.findings)
 
 Set at least one free provider key:
 
-| Provider | Environment Variable | Models |
-|----------|---------------------|--------|
-| Groq | `GROQ_API_KEY` | LLaMA 3.3 70B |
-| Cerebras | `CEREBRAS_API_KEY` | LLaMA 3.3 70B |
-| OpenRouter | `OPENROUTER_API_KEY` | Free-tier models |
-| Gemini | `GEMINI_API_KEY` | Gemini Flash |
-| Cohere | `COHERE_API_KEY` | Command R+ |
-| HuggingFace | `HUGGINGFACE_API_KEY` | Various |
+| Provider | Environment Variable | Default Model | Notes |
+|----------|---------------------|---------------|-------|
+| Cohere | `COHERE_API_KEY` | command-a-03-2025 | Recommended — most reliable |
+| Groq | `GROQ_API_KEY` | qwen/qwen3.6-27b | Fast inference |
+| OpenRouter | `OPENROUTER_API_KEY` | google/gemma-4-31b-it:free | Free-tier models |
+| Cerebras | `CEREBRAS_API_KEY` | llama-3.3-70b | Fast inference |
+| Gemini | `GEMINI_API_KEY` | Gemini Flash | Via model-router-ai only |
+| HuggingFace | `HUGGINGFACE_API_KEY` | Various | Via model-router-ai only |
+
+Set multiple keys for automatic failover — if one provider errors, the next is tried.
 
 ## Architecture
 
 ### Components
 
-- **Router** (`router.py`) — Free-model routing via [model-router-ai](https://github.com/FlossWare/model-router-ai). Falls back to `SimpleFreeRouter` if model-router-ai is not installed.
+- **Router** (`router.py`) — Free-model routing. When [model-router-ai](https://github.com/FlossWare/model-router-ai) is installed, uses its full decorator stack (Thompson Sampling, latency optimization, cost awareness). Otherwise, falls back to the built-in `SimpleFreeRouter` which provides basic multi-provider failover without external dependencies.
 - **Repo** (`repo.py`) — Repository inspection: read/write files, grep, git operations, command execution.
-- **Worker** (`worker.py`) — LLM-driven investigation and implementation. Parses structured JSON responses, applies file changes, runs test commands.
+- **Worker** (`worker.py`) — LLM-driven investigation and implementation. Parses structured JSON responses (with recovery for malformed LLM output), applies file changes, runs test commands. Blocks dangerous commands.
 - **Arbiter** (`arbiter.py`) — Independent code review with structured accept/reject decisions and actionable feedback.
 - **CodingAgent** (`agent.py`) — Orchestrates the worker/arbiter loop with configurable iteration limits.
 - **CLI** (`cli.py`) — Command-line interface (`pa` command).
+
+### Two Routing Modes
+
+**With model-router-ai installed** (recommended): Uses the full decorator stack — PolicyGuard, CostAware, LatencyOptimizer, ThompsonSamplingSelector — for intelligent model selection with Bayesian explore/exploit.
+
+**Without model-router-ai** (zero-dependency fallback): The built-in `SimpleFreeRouter` tries each configured provider in order, falling back automatically on API errors. Supports both OpenAI-compatible APIs and Cohere's v2 chat API natively.
+
+### Malformed JSON Recovery
+
+LLMs sometimes return invalid JSON (triple-quoted strings, trailing commas). The worker includes a `_fix_malformed_json` method that handles these common mistakes before falling back to a plain-text response.
 
 ### Composed FlossWare Packages
 
 | Package | Role |
 |---------|------|
-| [model-router-ai](https://github.com/FlossWare/model-router-ai) | Free-model routing with Thompson Sampling, latency optimization, cost awareness |
+| [model-router-ai](https://github.com/FlossWare/model-router-ai) | Free-model routing with Thompson Sampling, latency optimization, cost awareness, injectable protocols |
 | [resilience-ai](https://github.com/FlossWare/resilience-ai) | Circuit breakers, retry logic, fallback chains |
 | [structured-output-ai](https://github.com/FlossWare/structured-output-ai) | JSON schema enforcement for LLM outputs |
 
@@ -113,6 +146,26 @@ Optional (install with `pip install ".[all]"`):
 | [consensus-ai](https://github.com/FlossWare/consensus-ai) | Multi-model voting for high-confidence decisions |
 | [evaluation-ai](https://github.com/FlossWare/evaluation-ai) | Automated quality scoring |
 | [observability-ai](https://github.com/FlossWare/observability-ai) | Metrics, tracing, logging |
+
+### Public API
+
+All primary types are exported from the top-level package:
+
+```python
+from personal_agent import (
+    CodingAgent,        # Main orchestration loop
+    Worker,             # LLM-driven code worker
+    Arbiter,            # Independent code reviewer
+    Task,               # Task description
+    TaskResult,         # Full result with decisions and diffs
+    WorkerResult,       # Worker output (plan, findings, changes)
+    ArbiterDecision,    # Structured accept/reject
+    Decision,           # ACCEPT / REJECT enum
+    FileChange,         # Single file modification
+    CommandResult,      # Shell command result
+    create_free_router, # Router factory
+)
+```
 
 ### Agent Integration
 
@@ -125,7 +178,7 @@ personal-agent is agent-neutral — it works as a library from any coding agent:
 
 ## Safety
 
-- **Dangerous command blocking**: `rm -rf /`, `mkfs`, fork bombs, etc. are blocked
+- **Dangerous command blocking**: `rm -rf /`, `mkfs`, `sudo`, pipe-to-shell, fork bombs, and 20+ other patterns are blocked
 - **Command timeouts**: All subprocess calls have configurable timeouts (default 120s)
 - **No network egress beyond LLM calls**: Worker/arbiter only call the router
 - **Git isolation**: Changes are tracked via `git diff`, uncommitted until explicitly requested
@@ -134,7 +187,7 @@ personal-agent is agent-neutral — it works as a library from any coding agent:
 
 ```bash
 pip install -e ".[dev]"
-pytest tests/ -v
+pytest tests/ -v    # 65 tests
 ```
 
 ## License

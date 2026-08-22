@@ -25,12 +25,13 @@ pa "Add input validation to the API" --repo . --commit
 
 ### API Keys
 
-Set one or more free provider keys:
-- `GROQ_API_KEY` - Groq (fast inference)
-- `CEREBRAS_API_KEY` - Cerebras
-- `OPENROUTER_API_KEY` - OpenRouter (free tier)
+Set one or more free provider keys (multiple enables automatic failover):
+- `COHERE_API_KEY` - Cohere (command-a-03-2025, recommended)
+- `GROQ_API_KEY` - Groq (qwen/qwen3.6-27b)
+- `OPENROUTER_API_KEY` - OpenRouter (free-tier models)
+- `CEREBRAS_API_KEY` - Cerebras (llama-3.3-70b)
 - `GEMINI_API_KEY` - Google Gemini
-- `COHERE_API_KEY` - Cohere
+- `HUGGINGFACE_API_KEY` - HuggingFace
 
 ### Python API
 
