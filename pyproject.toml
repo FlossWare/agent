@@ -1,0 +1,52 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "personal-agent"
+version = "0.1.0"
+description = "Personal AI coding-agent stack composing FlossWare capabilities for real software-engineering workflows"
+readme = "README.md"
+license = {text = "MIT"}
+requires-python = ">=3.11"
+authors = [
+    {name = "Scot P. Floess", email = "sfloess@gmail.com"},
+]
+keywords = ["ai", "coding-agent", "flossware", "free-models"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+]
+
+dependencies = [
+    "model-router-ai @ git+https://github.com/FlossWare/model-router-ai.git",
+    "resilience-ai @ git+https://github.com/FlossWare/resilience-ai.git",
+    "structured-output-ai @ git+https://github.com/FlossWare/structured-output-ai.git",
+]
+
+[project.optional-dependencies]
+all = [
+    "consensus-ai @ git+https://github.com/FlossWare/consensus-ai.git",
+    "evaluation-ai @ git+https://github.com/FlossWare/evaluation-ai.git",
+    "observability-ai @ git+https://github.com/FlossWare/observability-ai.git",
+    "security-ai @ git+https://github.com/FlossWare/security-ai.git",
+    "workflow-ai @ git+https://github.com/FlossWare/workflow-ai.git",
+]
+dev = [
+    "pytest>=7.0",
+    "pytest-asyncio>=0.21",
+]
+
+[project.scripts]
+pa = "personal_agent.cli:main"
+
+[project.urls]
+Repository = "https://github.com/FlossWare/personal-agent"
+
+[tool.setuptools.packages.find]
+include = ["personal_agent*"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
