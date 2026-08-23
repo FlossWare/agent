@@ -7,13 +7,15 @@ Personal AI coding-agent stack that composes [FlossWare](https://github.com/Flos
 ## How It Works
 
 ```
-Task → Worker (investigate/implement) → Tests → Arbiter (review) → Accept/Reject → Retry → Commit
+Task → (isolated worktree) → Worker → Tests → Hard gates → Arbiter → Accept/Reject → Apply → Commit
 ```
 
-1. **Worker** receives a task, inspects the repository, formulates a plan, makes changes, runs tests
-2. **Arbiter** independently reviews changes with structured accept/reject decisions
-3. If **rejected**, the worker receives actionable feedback and retries (up to N iterations)
-4. If **accepted**, changes are ready for commit/PR
+1. **Worktree** — each run executes in a disposable git worktree so the primary checkout is untouched until acceptance
+2. **Worker** receives a task, inspects the repository, formulates a plan, makes changes, runs tests
+3. **Hard gates** force REJECT on test failures or security-policy violations (LLM cannot override)
+4. **Arbiter** independently reviews changes with structured accept/reject decisions
+5. If **rejected**, the worker receives actionable feedback and retries (up to N iterations)
+6. If **accepted**, the worktree diff is applied to the primary tree and is ready for commit/PR
 
 ## Install
 
@@ -37,18 +39,6 @@ budget tier, and generates custom config files:
 ```bash
 python3 scripts/setup.py                 # dark theme
 python3 scripts/setup.py --theme borland-3d  # retro Borland look
-```
-
-```
-┌──────────────────────────────────────────────────────────────┐
-│ 2/5  FlossWare AI Capabilities                               │
-└──────────────────────────────────────────────────────────────┘
-
- > [x] model-router-ai       Smart LLM routing with provider failover
-   [x] resilience-ai          Retry, circuit breaker, timeout patterns
-   [x] structured-output-ai   Schema-validated JSON from LLMs
-   [ ] consensus-ai           Multi-model voting for critical decisions
-   [ ] evaluation-ai          Quality scoring and adversarial verification
 ```
 
 10 themes via [FlossWare/curses-themes](https://github.com/FlossWare/curses-themes).
@@ -83,7 +73,7 @@ import asyncio
 from personal_agent import CodingAgent, Task, Decision
 
 async def main():
-    agent = CodingAgent("/path/to/repo")
+    agent = CodingAgent("/path/to/repo")  # use_worktree=True by default
     result = await agent.run(Task(
         description="Fix the bug in auth.py",
         commands=["pytest tests/"],
@@ -137,15 +127,18 @@ Set at least one free provider key:
 
 Set multiple keys for automatic failover — if one provider errors, the next is tried.
 
+**Credential isolation:** provider API keys are read only by the router layer. Worker subprocesses run with a scrubbed environment so keys cannot be exfiltrated via `env`, `printenv`, or model-proposed commands.
+
 ## Architecture
 
 ### Components
 
 - **Router** (`router.py`) — Free-model routing. When [model-router-ai](https://github.com/FlossWare/model-router-ai) is installed, uses its full decorator stack (Thompson Sampling, latency optimization, cost awareness). Otherwise, falls back to the built-in `SimpleFreeRouter` which provides basic multi-provider failover without external dependencies.
-- **Repo** (`repo.py`) — Repository inspection: read/write files, grep, git operations, command execution.
-- **Worker** (`worker.py`) — LLM-driven investigation and implementation. Parses structured JSON responses (with recovery for malformed LLM output), applies file changes, runs test commands. Blocks dangerous commands.
-- **Arbiter** (`arbiter.py`) — Independent code review with structured accept/reject decisions and actionable feedback.
-- **CodingAgent** (`agent.py`) — Orchestrates the worker/arbiter loop with configurable iteration limits.
+- **Repo** (`repo.py`) — Repository inspection with **path confinement**, policy-gated command execution, and disposable worktrees.
+- **Security** (`security.py`) — `CommandPolicy`, `resolve_in_workspace`, `sanitize_worker_environ`, `redact_secrets`.
+- **Worker** (`worker.py`) — LLM-driven investigation and implementation. All commands pass through `CommandPolicy`.
+- **Arbiter** (`arbiter.py`) — Independent code review with structured accept/reject decisions. Secrets are redacted from prompts.
+- **CodingAgent** (`agent.py`) — Orchestrates worktree → worker → hard gates → arbiter → apply.
 - **CLI** (`cli.py`) — Command-line interface (`pa` command).
 
 ### Two Routing Modes
@@ -191,6 +184,9 @@ from personal_agent import (
     FileChange,         # Single file modification
     CommandResult,      # Shell command result
     create_free_router, # Router factory
+    CommandPolicy,      # Explicit command allow/deny policy
+    SecurityError,      # Raised on path/command policy violations
+    redact_secrets,     # Best-effort secret redaction
 )
 ```
 
@@ -205,16 +201,19 @@ personal-agent is agent-neutral — it works as a library from any coding agent:
 
 ## Safety
 
-- **Dangerous command blocking**: `rm -rf /`, `mkfs`, `sudo`, pipe-to-shell, fork bombs, and 20+ other patterns are blocked
-- **Command timeouts**: All subprocess calls have configurable timeouts (default 120s)
-- **No network egress beyond LLM calls**: Worker/arbiter only call the router
-- **Git isolation**: Changes are tracked via `git diff`, uncommitted until explicitly requested
+- **Command policy** (`CommandPolicy`): allowlist + denylist of executables, argv-based execution (`shell=False`), rejection of shell metacharacters, network tools denied by default
+- **Filesystem confinement**: every read/write/delete path is canonicalized and must stay under the workspace root (blocks `..`, absolute paths, symlink escapes)
+- **Credential isolation**: provider API keys and common secret env vars are stripped from worker subprocess environments
+- **Secret redaction**: keys/tokens redacted from logs, diffs, arbiter prompts, and feedback
+- **Hard verification gates**: failed tests and policy violations force `REJECT` — the LLM arbiter cannot override them
+- **Disposable worktrees**: agent runs mutate an isolated worktree; accepted diffs are applied explicitly to the primary tree
+- **Command timeouts**: all subprocess calls have configurable timeouts (default 120s)
 
 ## Development
 
 ```bash
 pip install -e ".[dev]"
-pytest tests/ -v    # 65 tests
+pytest tests/ -v
 ```
 
 ## License
