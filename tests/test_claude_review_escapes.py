@@ -107,6 +107,54 @@ class TestGitNetwork:
         assert argv[2] == "update"
 
 
+class TestGitSubmoduleForeach:
+    def test_foreach_denied(self):
+        with pytest.raises(SecurityError, match="shell"):
+            CommandPolicy().check(
+                ["git", "submodule", "foreach", "echo PWNED > /tmp/pwn"]
+            )
+
+    def test_foreach_recursive_denied(self):
+        with pytest.raises(SecurityError, match="shell"):
+            CommandPolicy().check(
+                ["git", "submodule", "foreach", "--recursive", "pwd"]
+            )
+
+    def test_foreach_denied_even_with_network(self):
+        with pytest.raises(SecurityError, match="shell"):
+            CommandPolicy(allow_network=True).check(
+                ["git", "submodule", "foreach", "id"]
+            )
+
+
+class TestUpdateIndexGitlink:
+    def test_cacheinfo_gitlink_comma_form(self):
+        with pytest.raises(SecurityError, match="gitlink"):
+            CommandPolicy().check(
+                [
+                    "git",
+                    "update-index",
+                    "--add",
+                    "--cacheinfo",
+                    "160000,aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa,fakesub",
+                ]
+            )
+
+    def test_cacheinfo_gitlink_space_form(self):
+        with pytest.raises(SecurityError, match="gitlink"):
+            CommandPolicy().check(
+                [
+                    "git",
+                    "update-index",
+                    "--add",
+                    "--cacheinfo",
+                    "160000",
+                    "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                    "fakesub",
+                ]
+            )
+
+
 class TestGitHooksWrite:
     def test_write_git_hooks_blocked(self, git_repo):
         with pytest.raises(SecurityError, match="\.git"):
