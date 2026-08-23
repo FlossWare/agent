@@ -27,8 +27,6 @@ class CredentialClass(str, Enum):
     APPLICATION = "application"
 
 
-# Paths under the workspace that workers must not write (hook / metadata abuse).
-# Matched as path prefixes after normalize (forward slashes, lowercased).
 FORBIDDEN_WRITE_PREFIXES = (
     ".git",
     ".git/",
@@ -36,7 +34,6 @@ FORBIDDEN_WRITE_PREFIXES = (
 
 
 def resolve_in_workspace(workspace: Path, rel_path: str) -> Path:
-    """Resolve *rel_path* under *workspace* and ensure it stays inside."""
     if not rel_path or not str(rel_path).strip():
         raise SecurityError("Empty path is not allowed")
 
@@ -62,7 +59,6 @@ def resolve_in_workspace(workspace: Path, rel_path: str) -> Path:
 
 
 def assert_writable_path(workspace: Path, rel_path: str) -> Path:
-    """Like resolve_in_workspace, but also blocks forbidden write prefixes."""
     full = resolve_in_workspace(workspace, rel_path)
     rel = str(full.relative_to(workspace.resolve())).replace("\\", "/")
     lowered = rel.lower()
@@ -130,15 +126,21 @@ GIT_NETWORK_SUBCOMMANDS = frozenset({
     "request-pull", "send-email",
 })
 
-# git submodule actions that contact remotes (URLs often only in .gitmodules)
 GIT_SUBMODULE_NETWORK_ACTIONS = frozenset({
     "update", "sync", "add", "absorbgitdirs",
 })
 
-# git remote actions that contact remotes without a literal URL arg
+# Always denied under submodule — runs arbitrary shell via git's sh -c
+GIT_SUBMODULE_SHELL_ACTIONS = frozenset({
+    "foreach", "foreach--recursive",
+})
+
 GIT_REMOTE_NETWORK_ACTIONS = frozenset({
     "update", "prune",
 })
+
+# gitlink mode used by update-index --cacheinfo to register a submodule entry
+GITLINK_MODE = "160000"
 
 SHELL_METACHAR_RE = re.compile(
     r"""[;|&`$(){}]|
@@ -189,8 +191,8 @@ FIND_EXEC_FLAGS = frozenset({
 })
 
 PATH_TAKING_SHORT_FLAGS = frozenset({
-    "C",  # tar -C, make -C
-    "t",  # cp -t
+    "C",
+    "t",
 })
 
 
@@ -300,7 +302,6 @@ class CommandPolicy:
                 )
 
     def _check_git_args(self, argv: list[str]) -> None:
-        # Skip global options to find the subcommand
         i = 1
         while i < len(argv):
             a = argv[i]
@@ -316,25 +317,42 @@ class CommandPolicy:
         sub = argv[i].lower()
         rest = argv[i + 1:]
 
+        # --- Always-on denials (shell / index abuse), independent of network ---
+        if sub == "submodule":
+            action = self._next_git_action(rest)
+            if action in GIT_SUBMODULE_SHELL_ACTIONS or (
+                action is not None and action.startswith("foreach")
+            ):
+                raise SecurityError(
+                    f"git submodule {action} is denied "
+                    f"(arbitrary shell via git)"
+                )
+
+        if sub == "update-index":
+            self._check_update_index(rest)
+
+        # filter-branch / rebase with exec can run shell; deny exec flags
+        if sub in {"filter-branch", "rebase", "am"}:
+            for a in rest:
+                if a in {"-exec", "--exec"} or a.startswith("--exec="):
+                    raise SecurityError(
+                        f"git {sub} with exec is denied (arbitrary shell)"
+                    )
+
         if not self.allow_network:
             if sub in GIT_NETWORK_SUBCOMMANDS:
                 raise SecurityError(
                     f"git {sub} requires network (allow_network=False)"
                 )
 
-            # submodule update/sync/add — network via .gitmodules URLs
             if sub == "submodule":
                 action = self._next_git_action(rest)
-                if action is None or action in GIT_SUBMODULE_NETWORK_ACTIONS:
-                    # bare `git submodule` is status-like; allow.
-                    # update/sync/add always need network capability.
-                    if action in GIT_SUBMODULE_NETWORK_ACTIONS:
-                        raise SecurityError(
-                            f"git submodule {action} requires network "
-                            f"(allow_network=False)"
-                        )
+                if action in GIT_SUBMODULE_NETWORK_ACTIONS:
+                    raise SecurityError(
+                        f"git submodule {action} requires network "
+                        f"(allow_network=False)"
+                    )
 
-            # remote update/prune contacts configured remotes
             if sub == "remote":
                 action = self._next_git_action(rest)
                 if action in GIT_REMOTE_NETWORK_ACTIONS:
@@ -352,6 +370,43 @@ class CommandPolicy:
                     raise SecurityError(
                         f"git remote URL denied when allow_network=False: {a!r}"
                     )
+
+    def _check_update_index(self, rest: list[str]) -> None:
+        """Block planting gitlinks via update-index --cacheinfo 160000."""
+        # Forms:
+        #   --cacheinfo <mode>,<object>,<path>
+        #   --cacheinfo <mode> <object> <path>
+        #   --cacheinfo=<mode>,<object>,<path>
+        for idx, a in enumerate(rest):
+            if a == "--cacheinfo" or a.startswith("--cacheinfo="):
+                payload = ""
+                if a.startswith("--cacheinfo="):
+                    payload = a.split("=", 1)[1]
+                elif idx + 1 < len(rest):
+                    payload = rest[idx + 1]
+                # mode may be first comma field or the whole next token
+                mode = payload.split(",")[0].strip() if payload else ""
+                if mode == GITLINK_MODE or mode.endswith(GITLINK_MODE):
+                    raise SecurityError(
+                        "git update-index --cacheinfo with gitlink mode "
+                        f"{GITLINK_MODE} is denied"
+                    )
+                # Also catch space-separated: --cacheinfo 160000 <sha> <path>
+                if mode != GITLINK_MODE and idx + 1 < len(rest):
+                    if rest[idx + 1] == GITLINK_MODE:
+                        raise SecurityError(
+                            "git update-index --cacheinfo with gitlink mode "
+                            f"{GITLINK_MODE} is denied"
+                        )
+            # Deny any explicit 160000 token near --add/--cacheinfo as defense
+            if a == GITLINK_MODE and any(
+                x in {"--cacheinfo", "--add", "--index-info"}
+                or x.startswith("--cacheinfo")
+                for x in rest
+            ):
+                raise SecurityError(
+                    f"git update-index with gitlink mode {GITLINK_MODE} is denied"
+                )
 
     @staticmethod
     def _next_git_action(args: list[str]) -> str | None:
