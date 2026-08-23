@@ -1,4 +1,4 @@
-## Personal Agent
+## Coding Agent
 
 AI coding agent that uses free LLM models to investigate, modify, test, and review code changes.
 
