@@ -38,24 +38,16 @@ class SecurityError(Exception):
 class CredentialClass(str, Enum):
     """Classification of secrets the agent may encounter."""
 
-    PROVIDER = "provider"  # LLM API keys — router only
-    REPOSITORY = "repository"  # git/host tokens (GITHUB_TOKEN, etc.)
-    CLOUD = "cloud"  # AWS/GCP/Azure credentials
-    PACKAGE_REGISTRY = "package_registry"  # npm/pypi/docker tokens
-    SSH = "ssh"  # agent sockets / keys
-    APPLICATION = "application"  # app-specific secrets in env/files
+    PROVIDER = "provider"
+    REPOSITORY = "repository"
+    CLOUD = "cloud"
+    PACKAGE_REGISTRY = "package_registry"
+    SSH = "ssh"
+    APPLICATION = "application"
 
-
-# ---------------------------------------------------------------------------
-# Path confinement
-# ---------------------------------------------------------------------------
 
 def resolve_in_workspace(workspace: Path, rel_path: str) -> Path:
-    """Resolve *rel_path* under *workspace* and ensure it stays inside.
-
-    Rejects absolute paths, ``..`` traversal, null bytes, and paths that
-    resolve outside the workspace (including via symlinks).
-    """
+    """Resolve *rel_path* under *workspace* and ensure it stays inside."""
     if not rel_path or not str(rel_path).strip():
         raise SecurityError("Empty path is not allowed")
 
@@ -66,12 +58,6 @@ def resolve_in_workspace(workspace: Path, rel_path: str) -> Path:
 
     if "\x00" in rel_path:
         raise SecurityError("Path contains null byte")
-
-    # Reject any explicit .. segment before resolve (defense in depth)
-    parts = candidate.parts
-    if ".." in parts:
-        # Still allow resolve check — but fail fast on clear traversal intent
-        pass
 
     workspace = workspace.resolve()
     full = (workspace / candidate).resolve()
@@ -87,17 +73,12 @@ def resolve_in_workspace(workspace: Path, rel_path: str) -> Path:
 
 
 def is_path_inside(workspace: Path, target: Path) -> bool:
-    """Return True if *target* is inside *workspace* after resolve."""
     try:
         target.resolve().relative_to(workspace.resolve())
         return True
     except ValueError:
         return False
 
-
-# ---------------------------------------------------------------------------
-# Command policy
-# ---------------------------------------------------------------------------
 
 DENIED_COMMANDS = frozenset({
     "sudo", "su", "doas",
@@ -109,19 +90,15 @@ DENIED_COMMANDS = frozenset({
     "visudo",
     "mount", "umount",
     "dd",
-    "nc", "ncat", "netcat",
-    "socat",
     "tcpdump", "wireshark", "tshark",
     "strace", "gdb",
     "chmod", "chown", "chgrp",
-    "curl", "wget", "http", "httpie",
-    "ssh", "scp", "sftp", "rsync",
     "docker", "podman", "kubectl", "helm",
     "systemctl", "service",
     "crontab", "at",
     "bash", "sh", "zsh", "fish", "csh", "tcsh", "ksh",
     "eval", "exec",
-    "python2",  # prefer explicit python3
+    "python2",
 })
 
 ALLOWED_COMMANDS = frozenset({
@@ -146,10 +123,10 @@ ALLOWED_COMMANDS = frozenset({
 })
 
 SHELL_METACHAR_RE = re.compile(
-    r"""[;|&`$(){}]|  # separators / substitution
-        \$\(|         # command substitution
-        `[^`]*`|      # backticks
-        >\s*/|        # redirect to absolute
+    r"""[;|&`$(){}]|
+        \$\(|
+        `[^`]*`|
+        >\s*/|
         >>\s*/|
         <\s*/|
         \|\s*(sh|bash|zsh|dash|ksh|csh|tcsh|python|perl|ruby)\b
@@ -172,10 +149,11 @@ DANGEROUS_SUBSTRINGS = (
     "truncate -s 0",
     "shred ", "wipefs",
     "/etc/passwd", "/etc/shadow",
-    "curl ", "wget ",
-    "$(", "`",  # command substitution markers
+    "$(", "`",
     "${IFS}",
 )
+
+NETWORK_DANGEROUS_SUBSTRINGS = ("curl ", "wget ")
 
 NETWORK_COMMANDS = frozenset({
     "curl", "wget", "http", "httpie", "nc", "ncat", "netcat",
@@ -185,11 +163,7 @@ NETWORK_COMMANDS = frozenset({
 
 @dataclass
 class CommandPolicy:
-    """Explicit policy for which commands a worker may execute.
-
-    Network is an explicit capability: set allow_network=True to permit
-    tools in NETWORK_COMMANDS (they remain subject to path rules).
-    """
+    """Explicit policy for which commands a worker may execute."""
 
     allowed: frozenset[str] = ALLOWED_COMMANDS
     denied: frozenset[str] = DENIED_COMMANDS
@@ -206,13 +180,14 @@ class CommandPolicy:
         return allowed
 
     def effective_denied(self) -> frozenset[str]:
-        denied = self.denied | self.extra_denied
-        if not self.allow_network:
-            denied = denied | NETWORK_COMMANDS
-        return denied
+        denied = set(self.denied) | set(self.extra_denied)
+        if self.allow_network:
+            denied -= set(NETWORK_COMMANDS)
+        else:
+            denied |= set(NETWORK_COMMANDS)
+        return frozenset(denied)
 
     def check(self, cmd: str | Sequence[str]) -> list[str]:
-        """Validate a command. Return argv list if allowed; raise SecurityError."""
         if isinstance(cmd, str):
             raw = cmd.strip()
             if not raw:
@@ -222,6 +197,12 @@ class CommandPolicy:
             for s in DANGEROUS_SUBSTRINGS:
                 if s.lower() in lower:
                     raise SecurityError(f"Denied dangerous pattern in command: {raw!r}")
+            if not self.allow_network:
+                for s in NETWORK_DANGEROUS_SUBSTRINGS:
+                    if s.lower() in lower:
+                        raise SecurityError(
+                            f"Denied network pattern (allow_network=False): {raw!r}"
+                        )
 
             if not self.allow_shell and SHELL_METACHAR_RE.search(raw):
                 raise SecurityError(
@@ -239,19 +220,15 @@ class CommandPolicy:
         if not argv:
             raise SecurityError("Empty argv")
 
-        # Reject path-like executable that tries to escape
         exe_path = Path(argv[0])
         if "/" in argv[0] or argv[0].startswith("."):
             if self.workspace is not None:
-                try:
-                    if not exe_path.is_absolute():
-                        resolve_in_workspace(self.workspace, argv[0])
-                    elif not is_path_inside(self.workspace, exe_path):
-                        raise SecurityError(
-                            f"Executable path outside workspace: {argv[0]!r}"
-                        )
-                except SecurityError:
-                    raise
+                if not exe_path.is_absolute():
+                    resolve_in_workspace(self.workspace, argv[0])
+                elif not is_path_inside(self.workspace, exe_path):
+                    raise SecurityError(
+                        f"Executable path outside workspace: {argv[0]!r}"
+                    )
 
         exe = exe_path.name.lower()
 
@@ -284,7 +261,6 @@ class CommandPolicy:
         assert self.workspace is not None
         for arg in argv[1:]:
             if arg.startswith("-") and not arg.startswith("--"):
-                # short flags; skip pure flags but check --file=path below
                 if "=" not in arg:
                     continue
             if arg.startswith("--") and "=" in arg:
@@ -311,13 +287,7 @@ class CommandPolicy:
 DEFAULT_POLICY = CommandPolicy()
 
 
-# ---------------------------------------------------------------------------
-# Credential / environment isolation
-# ---------------------------------------------------------------------------
-
-# Explicit map of env var -> credential class for documentation and tests.
 CREDENTIAL_ENV_VARS: dict[str, CredentialClass] = {
-    # Provider (LLM)
     "GROQ_API_KEY": CredentialClass.PROVIDER,
     "CEREBRAS_API_KEY": CredentialClass.PROVIDER,
     "OPENROUTER_API_KEY": CredentialClass.PROVIDER,
@@ -329,20 +299,16 @@ CREDENTIAL_ENV_VARS: dict[str, CredentialClass] = {
     "OPENAI_API_KEY": CredentialClass.PROVIDER,
     "ANTHROPIC_API_KEY": CredentialClass.PROVIDER,
     "AZURE_OPENAI_API_KEY": CredentialClass.PROVIDER,
-    # Cloud
     "AWS_SECRET_ACCESS_KEY": CredentialClass.CLOUD,
     "AWS_ACCESS_KEY_ID": CredentialClass.CLOUD,
     "AWS_SESSION_TOKEN": CredentialClass.CLOUD,
-    # Repository host
     "GITHUB_TOKEN": CredentialClass.REPOSITORY,
     "GH_TOKEN": CredentialClass.REPOSITORY,
     "GITLAB_TOKEN": CredentialClass.REPOSITORY,
-    # Package registries
     "NPM_TOKEN": CredentialClass.PACKAGE_REGISTRY,
     "PYPI_TOKEN": CredentialClass.PACKAGE_REGISTRY,
     "TWINE_PASSWORD": CredentialClass.PACKAGE_REGISTRY,
     "DOCKER_PASSWORD": CredentialClass.PACKAGE_REGISTRY,
-    # SSH
     "SSH_AUTH_SOCK": CredentialClass.SSH,
     "SSH_AGENT_PID": CredentialClass.SSH,
 }
@@ -367,11 +333,6 @@ def sanitize_worker_environ(
     *,
     extra_block: frozenset[str] | None = None,
 ) -> dict[str, str]:
-    """Build an environment dict safe to pass to a coding worker subprocess.
-
-    Strips all known credential classes and pattern-matched secret names.
-    PATH, HOME, LANG, and similar operational vars are retained.
-    """
     src = dict(base if base is not None else os.environ)
     blocked = set(CREDENTIAL_ENV_VARS.keys())
     if extra_block:
@@ -387,10 +348,6 @@ def sanitize_worker_environ(
     return clean
 
 
-# ---------------------------------------------------------------------------
-# Secret redaction
-# ---------------------------------------------------------------------------
-
 _DEFAULT_SECRET_PATTERNS = [
     re.compile(r"(?i)(bearer\s+)[a-z0-9\-._~+/]+=*"),
     re.compile(r"(?i)(api[_-]?key\s*[=:]\s*)[^\s'\"&,]+"),
@@ -404,21 +361,22 @@ _DEFAULT_SECRET_PATTERNS = [
     re.compile(r"\b(ghs_[A-Za-z0-9]{20,})\b"),
     re.compile(r"\b(xox[baprs]-[A-Za-z0-9\-]{10,})\b"),
     re.compile(r"\b(AKIA[0-9A-Z]{16})\b"),
-    re.compile(r"\b(AIza[0-9A-Za-z\-_]{35})\b"),  # Google API keys
-    re.compile(r"-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----.*?-----END (?:RSA |EC |OPENSSH )?PRIVATE KEY-----", re.DOTALL),
+    re.compile(r"\b(AIza[0-9A-Za-z\-_]{35})\b"),
+    re.compile(
+        r"-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----.*?"
+        r"-----END (?:RSA |EC |OPENSSH )?PRIVATE KEY-----",
+        re.DOTALL,
+    ),
 ]
 
 
 @dataclass
 class SecretRedactor:
-    """Configurable secret redaction.
-
-    Set enabled=False only in trusted diagnostic environments.
-    """
-
     enabled: bool = True
     replacement: str = "***REDACTED***"
-    patterns: list[re.Pattern[str]] = field(default_factory=lambda: list(_DEFAULT_SECRET_PATTERNS))
+    patterns: list[re.Pattern[str]] = field(
+        default_factory=lambda: list(_DEFAULT_SECRET_PATTERNS)
+    )
 
     def redact(self, text: str) -> str:
         if not self.enabled or not text:
@@ -439,7 +397,6 @@ _DEFAULT_REDACTOR = SecretRedactor()
 
 
 def redact_secrets(text: str, replacement: str = "***REDACTED***") -> str:
-    """Best-effort redaction of common secret patterns from *text*."""
     if replacement != _DEFAULT_REDACTOR.replacement:
         return SecretRedactor(replacement=replacement).redact(text)
     return _DEFAULT_REDACTOR.redact(text)
