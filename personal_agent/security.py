@@ -28,9 +28,10 @@ class CredentialClass(str, Enum):
 
 
 # Paths under the workspace that workers must not write (hook / metadata abuse).
+# Matched as path prefixes after normalize (forward slashes, lowercased).
 FORBIDDEN_WRITE_PREFIXES = (
+    ".git",
     ".git/",
-    ".git\\",
 )
 
 
@@ -61,14 +62,16 @@ def resolve_in_workspace(workspace: Path, rel_path: str) -> Path:
 
 
 def assert_writable_path(workspace: Path, rel_path: str) -> Path:
-    """Like resolve_in_workspace, but also blocks .git/** writes."""
+    """Like resolve_in_workspace, but also blocks forbidden write prefixes."""
     full = resolve_in_workspace(workspace, rel_path)
     rel = str(full.relative_to(workspace.resolve())).replace("\\", "/")
     lowered = rel.lower()
-    if lowered == ".git" or lowered.startswith(".git/"):
-        raise SecurityError(
-            f"Writes under .git/ are not allowed: {rel_path!r}"
-        )
+    for prefix in FORBIDDEN_WRITE_PREFIXES:
+        p = prefix.lower().rstrip("/")
+        if lowered == p or lowered.startswith(p + "/"):
+            raise SecurityError(
+                f"Writes under {prefix!r} are not allowed: {rel_path!r}"
+            )
     return full
 
 
@@ -122,20 +125,19 @@ ALLOWED_COMMANDS = frozenset({
     "sed", "awk",
 })
 
-# git subcommands that never need network
-GIT_LOCAL_SUBCOMMANDS = frozenset({
-    "status", "diff", "log", "show", "add", "commit", "restore", "checkout",
-    "branch", "tag", "stash", "reset", "rev-parse", "rev-list", "describe",
-    "ls-files", "ls-tree", "cat-file", "blame", "shortlog", "config",
-    "init", "clean", "mv", "rm", "merge-base", "name-rev", "symbolic-ref",
-    "worktree", "apply", "format-patch", "am", "cherry-pick", "rebase",
-    "merge", "reflog", "remote", "submodule",  # remote/submodule inspected locally;
-    # network-using forms still blocked by URL checks below
-})
-
 GIT_NETWORK_SUBCOMMANDS = frozenset({
     "clone", "fetch", "pull", "push", "ls-remote", "archive",
     "request-pull", "send-email",
+})
+
+# git submodule actions that contact remotes (URLs often only in .gitmodules)
+GIT_SUBMODULE_NETWORK_ACTIONS = frozenset({
+    "update", "sync", "add", "absorbgitdirs",
+})
+
+# git remote actions that contact remotes without a literal URL arg
+GIT_REMOTE_NETWORK_ACTIONS = frozenset({
+    "update", "prune",
 })
 
 SHELL_METACHAR_RE = re.compile(
@@ -173,6 +175,8 @@ NETWORK_DANGEROUS_SUBSTRINGS = (
     "curl ", "wget ",
     "git clone", "git fetch", "git pull", "git push",
     "git ls-remote",
+    "git submodule update", "git submodule sync", "git submodule add",
+    "git remote update",
 )
 
 NETWORK_COMMANDS = frozenset({
@@ -184,11 +188,9 @@ FIND_EXEC_FLAGS = frozenset({
     "-exec", "-execdir", "-ok", "-okdir", "-delete",
 })
 
-# Flags that take a path as the next argv element (or embedded after the flag).
 PATH_TAKING_SHORT_FLAGS = frozenset({
     "C",  # tar -C, make -C
     "t",  # cp -t
-    "z",  # git -C is long only; keep general
 })
 
 
@@ -312,14 +314,36 @@ class CommandPolicy:
         if i >= len(argv):
             return
         sub = argv[i].lower()
+        rest = argv[i + 1:]
 
         if not self.allow_network:
             if sub in GIT_NETWORK_SUBCOMMANDS:
                 raise SecurityError(
                     f"git {sub} requires network (allow_network=False)"
                 )
-            # Block URL-looking args even on local-ish commands
-            for a in argv[i + 1:]:
+
+            # submodule update/sync/add — network via .gitmodules URLs
+            if sub == "submodule":
+                action = self._next_git_action(rest)
+                if action is None or action in GIT_SUBMODULE_NETWORK_ACTIONS:
+                    # bare `git submodule` is status-like; allow.
+                    # update/sync/add always need network capability.
+                    if action in GIT_SUBMODULE_NETWORK_ACTIONS:
+                        raise SecurityError(
+                            f"git submodule {action} requires network "
+                            f"(allow_network=False)"
+                        )
+
+            # remote update/prune contacts configured remotes
+            if sub == "remote":
+                action = self._next_git_action(rest)
+                if action in GIT_REMOTE_NETWORK_ACTIONS:
+                    raise SecurityError(
+                        f"git remote {action} requires network "
+                        f"(allow_network=False)"
+                    )
+
+            for a in rest:
                 al = a.lower()
                 if al.startswith((
                     "http://", "https://", "git://", "ssh://", "ftp://",
@@ -329,14 +353,20 @@ class CommandPolicy:
                         f"git remote URL denied when allow_network=False: {a!r}"
                     )
 
+    @staticmethod
+    def _next_git_action(args: list[str]) -> str | None:
+        for a in args:
+            if a.startswith("-"):
+                continue
+            return a.lower()
+        return None
+
     def _check_path_args(self, argv: list[str]) -> None:
-        """Validate path-like arguments, including -C/path short-opt forms."""
         assert self.workspace is not None
         i = 1
         while i < len(argv):
             arg = argv[i]
 
-            # Long opt --file=path or --file path
             if arg.startswith("--") and "=" in arg:
                 self._validate_path_operand(arg.split("=", 1)[1])
                 i += 1
@@ -345,30 +375,20 @@ class CommandPolicy:
                 i += 1
                 continue
 
-            # Short opts: -C/etc, -C /etc, -xfC/etc (last flag may embed path)
             if arg.startswith("-") and not arg.startswith("--"):
                 body = arg[1:]
-                # Concatenated form -C/path or -t/tmp
                 for flag in PATH_TAKING_SHORT_FLAGS:
                     if body.startswith(flag) and len(body) > len(flag):
-                        # path embedded after flag letter(s)
-                        embedded = body[len(flag):]
-                        if embedded.startswith("=") or embedded.startswith("/"):
-                            embedded = embedded.lstrip("=")
+                        embedded = body[len(flag):].lstrip("=")
                         if embedded and ("/" in embedded or embedded.startswith(".")):
                             self._validate_path_operand(embedded)
-                # -C <next> form
-                if body in PATH_TAKING_SHORT_FLAGS or any(
-                    body.endswith(f) and len(body) == 1 for f in PATH_TAKING_SHORT_FLAGS
-                ):
-                    if body in PATH_TAKING_SHORT_FLAGS and i + 1 < len(argv):
-                        self._validate_path_operand(argv[i + 1])
-                        i += 2
-                        continue
+                if body in PATH_TAKING_SHORT_FLAGS and i + 1 < len(argv):
+                    self._validate_path_operand(argv[i + 1])
+                    i += 2
+                    continue
                 i += 1
                 continue
 
-            # Positional path-like args
             if "/" in arg or arg.startswith("."):
                 self._validate_path_operand(arg)
             i += 1
@@ -425,7 +445,6 @@ PROVIDER_CREDENTIAL_VARS = frozenset(
     k for k, c in CREDENTIAL_ENV_VARS.items() if c == CredentialClass.PROVIDER
 )
 
-# Explicit allowlist of operational env vars for worker subprocesses.
 SAFE_ENV_ALLOWLIST = frozenset({
     "PATH", "HOME", "USER", "LOGNAME", "SHELL", "TERM", "LANG", "LC_ALL",
     "LC_CTYPE", "LC_MESSAGES", "LANGUAGE", "TZ", "TMPDIR", "TEMP", "TMP",
@@ -458,11 +477,6 @@ def sanitize_worker_environ(
     extra_block: frozenset[str] | None = None,
     extra_allow: frozenset[str] | None = None,
 ) -> dict[str, str]:
-    """Build worker env using an explicit allowlist of safe operational vars.
-
-    Anything not in SAFE_ENV_ALLOWLIST (plus extra_allow) is dropped.
-    Known credential names and secret-shaped names are always dropped.
-    """
     src = dict(base if base is not None else os.environ)
     blocked = set(CREDENTIAL_ENV_VARS.keys())
     if extra_block:
