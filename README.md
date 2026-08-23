@@ -29,6 +29,33 @@ cd personal-agent
 pip install -e ".[dev]"
 ```
 
+### Interactive Setup (TUI)
+
+The interactive builder lets you choose agents, FlossWare AI capabilities,
+budget tier, and generates custom config files:
+
+```bash
+python3 scripts/setup.py                 # dark theme
+python3 scripts/setup.py --theme borland-3d  # retro Borland look
+```
+
+```
+┌──────────────────────────────────────────────────────────────┐
+│ 2/5  FlossWare AI Capabilities                               │
+└──────────────────────────────────────────────────────────────┘
+
+ > [x] model-router-ai       Smart LLM routing with provider failover
+   [x] resilience-ai          Retry, circuit breaker, timeout patterns
+   [x] structured-output-ai   Schema-validated JSON from LLMs
+   [ ] consensus-ai           Multi-model voting for critical decisions
+   [ ] evaluation-ai          Quality scoring and adversarial verification
+```
+
+10 themes via [FlossWare/curses-themes](https://github.com/FlossWare/curses-themes).
+See [docs/SETUP.md](docs/SETUP.md) for the full walkthrough.
+
+For non-interactive environments: `./scripts/install.sh --agent all --repo .`
+
 ## Quick Start
 
 ### CLI

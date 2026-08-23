@@ -1,0 +1,15 @@
+┌──────────────────────────────────────────────────────────────┐
+│ 2/5  FlossWare AI Capabilities                               │
+└──────────────────────────────────────────────────────────────┘
+
+ > [x] model-router-ai       Smart LLM routing with provider failover
+   [x] resilience-ai          Retry, circuit breaker, timeout patterns
+   [x] structured-output-ai   Schema-validated JSON from LLMs
+   [ ] consensus-ai           Multi-model voting for critical decisions
+   [ ] evaluation-ai          Quality scoring and adversarial verification
+   [ ] observability-ai       Structured logging, metrics, cost tracking
+   [ ] security-ai            Input validation, secrets masking, audit logging
+   [ ] rag-ai                 Document retrieval and hybrid search
+   [ ] genetic-optimizer-ai   Parameter tuning via genetic algorithms
+
+  Space:toggle  Enter:confirm  a:all  n:none  q:quit

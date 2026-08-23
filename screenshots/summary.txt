@@ -1,0 +1,24 @@
+┌──────────────────────────────────────────────────────────────┐
+│ Setup Complete                                               │
+└──────────────────────────────────────────────────────────────┘
+
+  Agents:
+    + Claude Code
+    + Cursor
+
+  AI Stack:
+    + model-router-ai
+    + resilience-ai
+    + structured-output-ai
+
+  Budget: Free only
+  Project: /home/user/my-project
+
+  Generated files:
+    ai_config.py
+    .pa-config.json
+    CLAUDE.md
+    .claude/skills/
+    .cursorrules
+
+  Press q to exit

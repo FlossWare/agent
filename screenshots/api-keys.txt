@@ -1,0 +1,15 @@
+┌──────────────────────────────────────────────────────────────┐
+│ API Key Status                                               │
+└──────────────────────────────────────────────────────────────┘
+
+  Budget: Free only
+  Only free-tier providers shown
+
+   SET  Cohere       $COHERE_API_KEY
+   SET  OpenRouter   $OPENROUTER_API_KEY
+   ---  Gemini       $GEMINI_API_KEY
+                     https://aistudio.google.com/apikey
+
+  2 provider(s) configured
+
+  Press any key to continue...

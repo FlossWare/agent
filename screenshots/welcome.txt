@@ -1,0 +1,9 @@
+┌──────────────────────────────────────────────────────────────┐
+│ personal-agent builder                                       │
+└──────────────────────────────────────────────────────────────┘
+
+  Build AI coding-agent configs using FlossWare libraries
+  github.com/sfloess/personal-agent
+  Theme: dark  (press 't' to change, Enter to start)
+
+  Press any key to start...

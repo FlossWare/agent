@@ -1,0 +1,20 @@
+┌──────────────────────────────────────────────────────────────┐
+│ Building Configuration                                       │
+└──────────────────────────────────────────────────────────────┘
+
+  Installing personal-agent...
+  personal-agent installed
+  Generating Claude Code config...
+    + CLAUDE.md (generated)
+    + .claude/skills/
+  Generating Cursor config...
+    + .cursorrules (generated)
+  Generating ai_config.py...
+    + ai_config.py (generated)
+  Writing build manifest...
+    + .pa-config.json
+
+  Build complete!
+  ████████████████████████████████████████ 5/5
+
+  Press any key to continue...

@@ -1,0 +1,9 @@
+┌──────────────────────────────────────────────────────────────┐
+│ 1/5  Select Coding Agents                                    │
+└──────────────────────────────────────────────────────────────┘
+
+ > [x] Claude Code       Terminal, desktop, web, IDE extensions
+   [x] Cursor            AI-native IDE with built-in models
+   [ ] OpenCode / Codex  Terminal-based coding agents
+
+  Space:toggle  Enter:confirm  a:all  n:none  q:quit

@@ -1,0 +1,10 @@
+┌──────────────────────────────────────────────────────────────┐
+│ 3/5  Monthly Budget                                          │
+└──────────────────────────────────────────────────────────────┘
+
+ > (o) Free only   Cohere, OpenRouter, Gemini free tiers
+   ( ) Light       $10/month — adds Groq, Cerebras fast inference
+   ( ) Medium      $50/month — adds Claude Haiku, GPT-4o-mini
+   ( ) Custom      Set your own monthly budget
+
+  Enter:select  q:quit
