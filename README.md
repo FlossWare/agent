@@ -1,6 +1,6 @@
-# personal-agent
+# coding-agent-ai
 
-Personal AI coding-agent stack that composes [FlossWare](https://github.com/FlossWare) capabilities into a worker/arbiter loop for real software-engineering workflows.
+FlossWare coding-agent stack that composes [FlossWare](https://github.com/FlossWare) capabilities into a worker/arbiter loop for real software-engineering workflows.
 
 **Free models only.** Uses Groq, Cerebras, OpenRouter, Gemini, Cohere, and HuggingFace — no paid API keys required.
 
@@ -20,14 +20,14 @@ Task → (isolated worktree) → Worker → Tests → Hard gates → Arbiter →
 ## Install
 
 ```bash
-pip install git+https://github.com/FlossWare/personal-agent.git
+pip install git+https://github.com/FlossWare/coding-agent-ai.git
 ```
 
 Or for development:
 
 ```bash
-git clone https://github.com/FlossWare/personal-agent.git
-cd personal-agent
+git clone https://github.com/FlossWare/coding-agent-ai.git
+cd coding-agent-ai
 pip install -e ".[dev]"
 ```
 
