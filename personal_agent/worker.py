@@ -2,6 +2,10 @@
 
 A worker receives a Task, inspects the repository, formulates a plan,
 makes changes, runs tests, and returns a WorkerResult.
+
+Commands proposed by the model are validated by CommandPolicy before
+execution. Provider credentials are never present in the worker
+subprocess environment.
 """
 
 from __future__ import annotations
@@ -11,6 +15,7 @@ import logging
 from typing import Any
 
 from personal_agent.repo import Repo
+from personal_agent.security import CommandPolicy, SecurityError, redact_secrets
 from personal_agent.types import (
     CommandResult,
     FileChange,
@@ -51,6 +56,8 @@ Investigate the repository and respond with a JSON object:
 
 Be specific. Return actual file contents, not placeholders.
 If no changes are needed, return empty changes array with findings explaining why.
+Only propose safe development commands (pytest, python, git, linters). Do not
+propose shell pipelines, network tools, or system administration commands.
 """
 
 FIX_PROMPT = """You are a senior software engineer fixing code based on reviewer feedback.
@@ -92,11 +99,20 @@ class Worker:
     """Executes coding tasks against a repository.
 
     Uses an LLM to investigate, plan, and implement changes.
+    All commands pass through CommandPolicy; all paths through
+    workspace confinement.
     """
 
-    def __init__(self, router: Any, repo: Repo) -> None:
+    def __init__(
+        self,
+        router: Any,
+        repo: Repo,
+        *,
+        policy: CommandPolicy | None = None,
+    ) -> None:
         self._router = router
         self._repo = repo
+        self._policy = policy or repo.policy
 
     async def investigate(self, task: Task) -> WorkerResult:
         """Investigate the repo and propose/implement changes."""
@@ -121,14 +137,15 @@ class Worker:
         """Fix issues based on arbiter feedback."""
         tree = self._repo.tree()
         file_contents = self._gather_file_contents(task)
-        git_diff = self._repo.git_diff()
+        git_diff = redact_secrets(self._repo.git_diff())
         test_results = "\n".join(
-            f"$ {r.command}\n{r.stdout}\n{r.stderr}" for r in previous.test_results
+            f"$ {r.command}\n{redact_secrets(r.stdout)}\n{redact_secrets(r.stderr)}"
+            for r in previous.test_results
         )
 
         prompt = FIX_PROMPT.format(
             task_description=task.description,
-            feedback=feedback,
+            feedback=redact_secrets(feedback),
             tree=tree,
             file_contents=file_contents,
             git_diff=git_diff,
@@ -158,21 +175,14 @@ class Worker:
         if changes:
             self._repo.apply_changes(changes)
 
-        test_results = []
+        test_results: list[CommandResult] = []
         for cmd in parsed.get("commands_to_run", []):
-            if cmd and not self._is_dangerous(cmd):
-                result = self._repo.run_command(cmd, timeout=60)
-                test_results.append(result)
-            elif cmd:
-                test_results.append(CommandResult(
-                    command=cmd, returncode=-1,
-                    stderr="Blocked: potentially dangerous command",
-                ))
+            if not cmd:
+                continue
+            test_results.append(self._run_safe(cmd))
 
         for cmd in task.commands:
-            if not self._is_dangerous(cmd):
-                result = self._repo.run_command(cmd, timeout=60)
-                test_results.append(result)
+            test_results.append(self._run_safe(cmd))
 
         return WorkerResult(
             plan=parsed.get("plan", ""),
@@ -183,6 +193,10 @@ class Worker:
             raw_response=resp.content,
         )
 
+    def _run_safe(self, cmd: str) -> CommandResult:
+        """Run a command under policy; always return a CommandResult."""
+        return self._repo.run_command(cmd, timeout=60, policy=self._policy)
+
     def _gather_file_contents(self, task: Task) -> str:
         """Read relevant files for context."""
         files_to_read = task.files or self._repo.list_files()[:20]
@@ -192,8 +206,8 @@ class Worker:
                 content = self._repo.read_file(f)
                 if len(content) > 10000:
                     content = content[:10000] + "\n... (truncated)"
-                parts.append(f"=== {f} ===\n{content}")
-            except Exception:
+                parts.append(f"=== {f} ===\n{redact_secrets(content)}")
+            except (SecurityError, FileNotFoundError, IsADirectoryError, OSError):
                 continue
         return "\n\n".join(parts)
 
@@ -225,8 +239,6 @@ class Worker:
 
         def _replace_triple_quote(m: re.Match) -> str:
             inner = m.group(1)
-            # Inner content may already have \" escapes from the LLM —
-            # unescape first, then re-escape properly for JSON.
             inner = inner.replace('\\"', '"')
             return json.dumps(inner)
 
@@ -235,28 +247,8 @@ class Worker:
             return json.loads(fixed)
         except json.JSONDecodeError:
             pass
-        # Try removing trailing commas before } or ]
         fixed2 = re.sub(r',\s*([}\]])', r'\1', fixed)
         try:
             return json.loads(fixed2)
         except json.JSONDecodeError:
             return None
-
-    DANGEROUS_PATTERNS = [
-        "rm -rf /", "rm -rf /*", "rm -rf ~",
-        "mkfs", "dd if=", "> /dev/", ">> /dev/",
-        "shutdown", "reboot", "halt", "poweroff",
-        "kill -9 1", "kill -KILL 1", "killall",
-        ":(){ :|:& };:", "fork()", "while true",
-        "chmod -R 777 /", "chown -R",
-        "| sh", "| bash",
-        "sudo ",
-        "nc -l", "ncat -l",
-        "> /etc/", ">> /etc/",
-        "truncate -s 0",
-        "shred ", "wipefs",
-    ]
-
-    @staticmethod
-    def _is_dangerous(cmd: str) -> bool:
-        return any(d in cmd for d in Worker.DANGEROUS_PATTERNS)

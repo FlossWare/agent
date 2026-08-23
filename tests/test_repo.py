@@ -1,12 +1,11 @@
 """Tests for personal_agent.repo."""
 
-import os
 import subprocess
-import tempfile
 
 import pytest
 
 from personal_agent.repo import Repo
+from personal_agent.security import SecurityError
 from personal_agent.types import FileChange
 
 
@@ -14,16 +13,28 @@ from personal_agent.types import FileChange
 def git_repo(tmp_path):
     """Create a temporary git repo with some files."""
     subprocess.run(["git", "init"], cwd=str(tmp_path), capture_output=True)
-    subprocess.run(["git", "config", "user.email", "test@test.com"], cwd=str(tmp_path), capture_output=True)
-    subprocess.run(["git", "config", "user.name", "Test"], cwd=str(tmp_path), capture_output=True)
+    subprocess.run(
+        ["git", "config", "user.email", "test@test.com"],
+        cwd=str(tmp_path),
+        capture_output=True,
+    )
+    subprocess.run(
+        ["git", "config", "user.name", "Test"],
+        cwd=str(tmp_path),
+        capture_output=True,
+    )
 
     (tmp_path / "main.py").write_text("def hello():\n    return 'world'\n")
-    (tmp_path / "test_main.py").write_text("from main import hello\ndef test_hello():\n    assert hello() == 'world'\n")
+    (tmp_path / "test_main.py").write_text(
+        "from main import hello\ndef test_hello():\n    assert hello() == 'world'\n"
+    )
     (tmp_path / "sub").mkdir()
     (tmp_path / "sub" / "util.py").write_text("def add(a, b):\n    return a + b\n")
 
     subprocess.run(["git", "add", "-A"], cwd=str(tmp_path), capture_output=True)
-    subprocess.run(["git", "commit", "-m", "initial"], cwd=str(tmp_path), capture_output=True)
+    subprocess.run(
+        ["git", "commit", "-m", "initial"], cwd=str(tmp_path), capture_output=True
+    )
 
     return Repo(str(tmp_path))
 
@@ -77,17 +88,31 @@ class TestRepo:
         assert "initial" in log
 
     def test_run_command(self, git_repo):
+        result = git_repo.run_command(["echo", "hello"])
+        assert result.success
+        assert "hello" in result.stdout
+
+    def test_run_command_string(self, git_repo):
         result = git_repo.run_command("echo hello")
         assert result.success
         assert "hello" in result.stdout
 
     def test_run_command_failure(self, git_repo):
-        result = git_repo.run_command("false")
+        result = git_repo.run_command(["false"])
         assert not result.success
+
+    def test_run_command_policy_block(self, git_repo):
+        result = git_repo.run_command("sudo id")
+        assert result.returncode == -1
+        assert "security policy" in result.stderr.lower()
 
     def test_apply_changes(self, git_repo):
         changes = [
-            FileChange(path="main.py", action="modify", content="def hello():\n    return 'updated'\n"),
+            FileChange(
+                path="main.py",
+                action="modify",
+                content="def hello():\n    return 'updated'\n",
+            ),
             FileChange(path="new_file.py", action="create", content="x = 42\n"),
         ]
         results = git_repo.apply_changes(changes)
@@ -105,3 +130,7 @@ class TestRepo:
         tree = git_repo.tree()
         assert "main.py" in tree
         assert "sub" in tree
+
+    def test_path_escape_read(self, git_repo):
+        with pytest.raises(SecurityError):
+            git_repo.read_file("../outside.py")
