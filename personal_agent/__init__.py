@@ -18,6 +18,13 @@ from personal_agent.router import create_free_router
 from personal_agent.worker import Worker
 from personal_agent.arbiter import Arbiter
 from personal_agent.agent import CodingAgent
+from personal_agent.security import (
+    CommandPolicy,
+    SecurityError,
+    redact_secrets,
+    resolve_in_workspace,
+    sanitize_worker_environ,
+)
 
 __version__ = "0.1.0"
 
@@ -25,12 +32,17 @@ __all__ = [
     "Arbiter",
     "ArbiterDecision",
     "CodingAgent",
+    "CommandPolicy",
     "CommandResult",
     "Decision",
     "FileChange",
+    "SecurityError",
     "Task",
     "TaskResult",
     "Worker",
     "WorkerResult",
     "create_free_router",
+    "redact_secrets",
+    "resolve_in_workspace",
+    "sanitize_worker_environ",
 ]
