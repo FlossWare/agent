@@ -130,7 +130,6 @@ GIT_SUBMODULE_NETWORK_ACTIONS = frozenset({
     "update", "sync", "add", "absorbgitdirs",
 })
 
-# Always denied under submodule — runs arbitrary shell via git's sh -c
 GIT_SUBMODULE_SHELL_ACTIONS = frozenset({
     "foreach", "foreach--recursive",
 })
@@ -139,7 +138,18 @@ GIT_REMOTE_NETWORK_ACTIONS = frozenset({
     "update", "prune",
 })
 
-# gitlink mode used by update-index --cacheinfo to register a submodule entry
+# rebase/am short and long flags that run shell
+GIT_REBASE_SHELL_FLAGS = frozenset({
+    "-x", "--exec", "-exec",
+})
+
+# filter-branch flags that run shell on each commit
+GIT_FILTER_BRANCH_SHELL_FLAGS = frozenset({
+    "--tree-filter", "--index-filter", "--parent-filter",
+    "--msg-filter", "--commit-filter", "--tag-name-filter",
+    "--env-filter",
+})
+
 GITLINK_MODE = "160000"
 
 SHELL_METACHAR_RE = re.compile(
@@ -220,28 +230,29 @@ class CommandPolicy:
             denied |= set(NETWORK_COMMANDS)
         return frozenset(denied)
 
+    def _check_string_patterns(self, raw: str) -> None:
+        """Substring / metachar checks applied to both str and joined argv."""
+        lower = raw.lower()
+        for s in DANGEROUS_SUBSTRINGS:
+            if s.lower() in lower:
+                raise SecurityError(f"Denied dangerous pattern in command: {raw!r}")
+        if not self.allow_network:
+            for s in NETWORK_DANGEROUS_SUBSTRINGS:
+                if s.lower() in lower:
+                    raise SecurityError(
+                        f"Denied network pattern (allow_network=False): {raw!r}"
+                    )
+        if not self.allow_shell and SHELL_METACHAR_RE.search(raw):
+            raise SecurityError(
+                f"Shell metacharacters not allowed without allow_shell: {raw!r}"
+            )
+
     def check(self, cmd: str | Sequence[str]) -> list[str]:
         if isinstance(cmd, str):
             raw = cmd.strip()
             if not raw:
                 raise SecurityError("Empty command")
-
-            lower = raw.lower()
-            for s in DANGEROUS_SUBSTRINGS:
-                if s.lower() in lower:
-                    raise SecurityError(f"Denied dangerous pattern in command: {raw!r}")
-            if not self.allow_network:
-                for s in NETWORK_DANGEROUS_SUBSTRINGS:
-                    if s.lower() in lower:
-                        raise SecurityError(
-                            f"Denied network pattern (allow_network=False): {raw!r}"
-                        )
-
-            if not self.allow_shell and SHELL_METACHAR_RE.search(raw):
-                raise SecurityError(
-                    f"Shell metacharacters not allowed without allow_shell: {raw!r}"
-                )
-
+            self._check_string_patterns(raw)
             try:
                 argv = shlex.split(raw)
             except ValueError as e:
@@ -249,6 +260,10 @@ class CommandPolicy:
         else:
             argv = [str(a) for a in cmd]
             raw = " ".join(argv)
+            if not argv:
+                raise SecurityError("Empty argv")
+            # Same guarantees as string form so list callers are not weaker
+            self._check_string_patterns(raw)
 
         if not argv:
             raise SecurityError("Empty argv")
@@ -317,7 +332,6 @@ class CommandPolicy:
         sub = argv[i].lower()
         rest = argv[i + 1:]
 
-        # --- Always-on denials (shell / index abuse), independent of network ---
         if sub == "submodule":
             action = self._next_git_action(rest)
             if action in GIT_SUBMODULE_SHELL_ACTIONS or (
@@ -331,13 +345,30 @@ class CommandPolicy:
         if sub == "update-index":
             self._check_update_index(rest)
 
-        # filter-branch / rebase with exec can run shell; deny exec flags
-        if sub in {"filter-branch", "rebase", "am"}:
+        # Per-subcommand shell-executing flags (different names for each)
+        if sub == "rebase":
+            self._deny_flags(rest, GIT_REBASE_SHELL_FLAGS, sub)
             for a in rest:
-                if a in {"-exec", "--exec"} or a.startswith("--exec="):
+                if a.startswith("--exec="):
                     raise SecurityError(
-                        f"git {sub} with exec is denied (arbitrary shell)"
+                        f"git {sub} with --exec is denied (arbitrary shell)"
                     )
+        if sub == "am":
+            self._deny_flags(rest, {"--exec", "-exec"}, sub)
+            for a in rest:
+                if a.startswith("--exec="):
+                    raise SecurityError(
+                        f"git {sub} with --exec is denied (arbitrary shell)"
+                    )
+        if sub == "filter-branch":
+            self._deny_flags(rest, GIT_FILTER_BRANCH_SHELL_FLAGS, sub)
+            for a in rest:
+                for flag in GIT_FILTER_BRANCH_SHELL_FLAGS:
+                    if a.startswith(flag + "="):
+                        raise SecurityError(
+                            f"git filter-branch {flag} is denied "
+                            f"(arbitrary shell)"
+                        )
 
         if not self.allow_network:
             if sub in GIT_NETWORK_SUBCOMMANDS:
@@ -371,12 +402,15 @@ class CommandPolicy:
                         f"git remote URL denied when allow_network=False: {a!r}"
                     )
 
+    @staticmethod
+    def _deny_flags(rest: list[str], flags: frozenset[str], sub: str) -> None:
+        for a in rest:
+            if a in flags:
+                raise SecurityError(
+                    f"git {sub} flag {a!r} is denied (arbitrary shell)"
+                )
+
     def _check_update_index(self, rest: list[str]) -> None:
-        """Block planting gitlinks via update-index --cacheinfo 160000."""
-        # Forms:
-        #   --cacheinfo <mode>,<object>,<path>
-        #   --cacheinfo <mode> <object> <path>
-        #   --cacheinfo=<mode>,<object>,<path>
         for idx, a in enumerate(rest):
             if a == "--cacheinfo" or a.startswith("--cacheinfo="):
                 payload = ""
@@ -384,21 +418,18 @@ class CommandPolicy:
                     payload = a.split("=", 1)[1]
                 elif idx + 1 < len(rest):
                     payload = rest[idx + 1]
-                # mode may be first comma field or the whole next token
                 mode = payload.split(",")[0].strip() if payload else ""
                 if mode == GITLINK_MODE or mode.endswith(GITLINK_MODE):
                     raise SecurityError(
                         "git update-index --cacheinfo with gitlink mode "
                         f"{GITLINK_MODE} is denied"
                     )
-                # Also catch space-separated: --cacheinfo 160000 <sha> <path>
                 if mode != GITLINK_MODE and idx + 1 < len(rest):
                     if rest[idx + 1] == GITLINK_MODE:
                         raise SecurityError(
                             "git update-index --cacheinfo with gitlink mode "
                             f"{GITLINK_MODE} is denied"
                         )
-            # Deny any explicit 160000 token near --add/--cacheinfo as defense
             if a == GITLINK_MODE and any(
                 x in {"--cacheinfo", "--add", "--index-info"}
                 or x.startswith("--cacheinfo")
