@@ -1,12 +1,12 @@
-# OpenCode / Codex Integration for personal-agent
+# OpenCode / Codex Integration for coding-agent-ai
 
-Use [personal-agent](https://github.com/FlossWare/personal-agent) with OpenCode or Codex for AI-powered code review and implementation with free models.
+Use [coding-agent-ai](https://github.com/FlossWare/coding-agent-ai) with OpenCode or Codex for AI-powered code review and implementation with free models.
 
 ## Setup
 
-1. Install personal-agent:
+1. Install coding-agent-ai:
    ```bash
-   pip install git+https://github.com/FlossWare/personal-agent.git
+   pip install git+https://github.com/FlossWare/coding-agent-ai.git
    ```
 
 2. Set at least one free-tier provider key:
@@ -27,9 +27,9 @@ Use [personal-agent](https://github.com/FlossWare/personal-agent) with OpenCode 
 
 OpenCode reads `AGENTS.md` for agent instructions. Ask it to:
 
-- "Use personal-agent to review my changes"
+- "Use coding-agent-ai to review my changes"
 - "Run pa to fix the authentication bug"
-- "Investigate the API module with personal-agent"
+- "Investigate the API module with coding-agent-ai"
 
 ### With Codex CLI
 
