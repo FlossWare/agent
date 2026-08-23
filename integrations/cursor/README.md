@@ -1,12 +1,12 @@
-# Cursor Integration for personal-agent
+# Cursor Integration for coding-agent-ai
 
-Use [personal-agent](https://github.com/FlossWare/personal-agent) inside Cursor for AI-powered code review and implementation with free models.
+Use [coding-agent-ai](https://github.com/FlossWare/coding-agent-ai) inside Cursor for AI-powered code review and implementation with free models.
 
 ## Setup
 
-1. Install personal-agent:
+1. Install coding-agent-ai:
    ```bash
-   pip install git+https://github.com/FlossWare/personal-agent.git
+   pip install git+https://github.com/FlossWare/coding-agent-ai.git
    ```
 
 2. Set at least one free-tier provider key in your shell profile:
@@ -24,10 +24,10 @@ Use [personal-agent](https://github.com/FlossWare/personal-agent) inside Cursor 
 
 ### In Cursor Chat
 
-Ask Cursor to use personal-agent:
+Ask Cursor to use coding-agent-ai:
 
 - "Run pa review on my changes"
-- "Use personal-agent to fix the auth bug"
+- "Use coding-agent-ai to fix the auth bug"
 - "Investigate the database module with pa"
 
 ### In Cursor Terminal
@@ -45,7 +45,7 @@ pa "Add input validation" --repo . --commit
 
 ### In Cursor Composer
 
-Reference the `.cursorrules` file. Cursor will use the rules to suggest personal-agent commands when appropriate.
+Reference the `.cursorrules` file. Cursor will use the rules to suggest coding-agent-ai commands when appropriate.
 
 ## How It Works
 
