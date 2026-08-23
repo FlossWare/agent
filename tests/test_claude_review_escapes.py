@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import subprocess
+from pathlib import Path
 
 import pytest
 
@@ -12,6 +13,7 @@ from personal_agent.security import (
     SecurityError,
     sanitize_worker_environ,
 )
+from personal_agent.types import FileChange
 
 
 @pytest.fixture
@@ -75,11 +77,34 @@ class TestGitNetwork:
             )
 
     def test_git_clone_allowed_with_network(self):
-        # Subcommand allowed when capability enabled (URL still may be used)
         argv = CommandPolicy(allow_network=True).check(
             ["git", "clone", "https://example.com/r.git"]
         )
         assert argv[1] == "clone"
+
+    def test_git_submodule_update_denied(self):
+        with pytest.raises(SecurityError, match="network"):
+            CommandPolicy().check(
+                ["git", "submodule", "update", "--init", "--recursive"]
+            )
+
+    def test_git_submodule_sync_denied(self):
+        with pytest.raises(SecurityError, match="network"):
+            CommandPolicy().check(["git", "submodule", "sync"])
+
+    def test_git_submodule_status_allowed(self):
+        argv = CommandPolicy().check(["git", "submodule", "status"])
+        assert argv[1] == "submodule"
+
+    def test_git_remote_update_denied(self):
+        with pytest.raises(SecurityError, match="network"):
+            CommandPolicy().check(["git", "remote", "update"])
+
+    def test_git_submodule_update_allowed_with_network(self):
+        argv = CommandPolicy(allow_network=True).check(
+            ["git", "submodule", "update", "--init"]
+        )
+        assert argv[2] == "update"
 
 
 class TestGitHooksWrite:
@@ -94,8 +119,6 @@ class TestGitHooksWrite:
             git_repo.write_file(".git/config", "[core]\n\tbare = true\n")
 
     def test_apply_change_git_hooks_blocked(self, git_repo):
-        from personal_agent.types import FileChange
-
         results = git_repo.apply_changes(
             [
                 FileChange(
@@ -112,7 +135,7 @@ class TestGitHooksWrite:
 class TestShortOptPathArgs:
     def test_tar_c_embedded_path(self):
         with pytest.raises(SecurityError):
-            CommandPolicy(workspace=__import__("pathlib").Path("/tmp")).check(
+            CommandPolicy(workspace=Path("/tmp")).check(
                 ["tar", "-C/etc", "-xf", "x.tar"]
             )
 
