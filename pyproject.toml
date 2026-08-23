@@ -3,9 +3,9 @@ requires = ["setuptools>=68.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "personal-agent"
+name = "coding-agent-ai"
 version = "0.1.0"
-description = "Personal AI coding-agent stack composing FlossWare capabilities for real software-engineering workflows"
+description = "FlossWare coding-agent execution/orchestration — worker/arbiter loop for real software-engineering workflows"
 readme = "README.md"
 license = {text = "MIT"}
 requires-python = ">=3.11"
@@ -45,7 +45,7 @@ dev = [
 pa = "personal_agent.cli:main"
 
 [project.urls]
-Repository = "https://github.com/FlossWare/personal-agent"
+Repository = "https://github.com/FlossWare/coding-agent-ai"
 
 [tool.setuptools.packages.find]
 include = ["personal_agent*"]
