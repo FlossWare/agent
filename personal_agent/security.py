@@ -1,23 +1,6 @@
 """Security boundaries for agent execution.
 
-Provides:
-- Path confinement (no escape from workspace root)
-- Command policy (argv-preferred execution, explicit allow/deny)
-- Credential environment sanitization by class
-- Configurable secret redaction
-
-Trust model
------------
-The coding worker is untrusted relative to the host. It may only:
-
-1. Read/write paths that resolve inside the assigned workspace root.
-2. Execute commands allowed by CommandPolicy, as argv (shell=False).
-3. See an environment with provider and other secret credentials removed.
-
-Provider API keys are owned exclusively by the router/provider layer in the
-parent process. They must never be injected into worker subprocesses.
-Network access is an explicit capability (CommandPolicy.allow_network),
-not an implicit property of the environment.
+See docs/SECURITY.md for the trust model.
 """
 
 from __future__ import annotations
@@ -36,14 +19,19 @@ class SecurityError(Exception):
 
 
 class CredentialClass(str, Enum):
-    """Classification of secrets the agent may encounter."""
-
     PROVIDER = "provider"
     REPOSITORY = "repository"
     CLOUD = "cloud"
     PACKAGE_REGISTRY = "package_registry"
     SSH = "ssh"
     APPLICATION = "application"
+
+
+# Paths under the workspace that workers must not write (hook / metadata abuse).
+FORBIDDEN_WRITE_PREFIXES = (
+    ".git/",
+    ".git\\",
+)
 
 
 def resolve_in_workspace(workspace: Path, rel_path: str) -> Path:
@@ -69,6 +57,18 @@ def resolve_in_workspace(workspace: Path, rel_path: str) -> Path:
             f"Path escapes workspace root: {rel_path!r} -> {full}"
         ) from exc
 
+    return full
+
+
+def assert_writable_path(workspace: Path, rel_path: str) -> Path:
+    """Like resolve_in_workspace, but also blocks .git/** writes."""
+    full = resolve_in_workspace(workspace, rel_path)
+    rel = str(full.relative_to(workspace.resolve())).replace("\\", "/")
+    lowered = rel.lower()
+    if lowered == ".git" or lowered.startswith(".git/"):
+        raise SecurityError(
+            f"Writes under .git/ are not allowed: {rel_path!r}"
+        )
     return full
 
 
@@ -122,6 +122,22 @@ ALLOWED_COMMANDS = frozenset({
     "sed", "awk",
 })
 
+# git subcommands that never need network
+GIT_LOCAL_SUBCOMMANDS = frozenset({
+    "status", "diff", "log", "show", "add", "commit", "restore", "checkout",
+    "branch", "tag", "stash", "reset", "rev-parse", "rev-list", "describe",
+    "ls-files", "ls-tree", "cat-file", "blame", "shortlog", "config",
+    "init", "clean", "mv", "rm", "merge-base", "name-rev", "symbolic-ref",
+    "worktree", "apply", "format-patch", "am", "cherry-pick", "rebase",
+    "merge", "reflog", "remote", "submodule",  # remote/submodule inspected locally;
+    # network-using forms still blocked by URL checks below
+})
+
+GIT_NETWORK_SUBCOMMANDS = frozenset({
+    "clone", "fetch", "pull", "push", "ls-remote", "archive",
+    "request-pull", "send-email",
+})
+
 SHELL_METACHAR_RE = re.compile(
     r"""[;|&`$(){}]|
         \$\(|
@@ -153,18 +169,31 @@ DANGEROUS_SUBSTRINGS = (
     "${IFS}",
 )
 
-NETWORK_DANGEROUS_SUBSTRINGS = ("curl ", "wget ")
+NETWORK_DANGEROUS_SUBSTRINGS = (
+    "curl ", "wget ",
+    "git clone", "git fetch", "git pull", "git push",
+    "git ls-remote",
+)
 
 NETWORK_COMMANDS = frozenset({
     "curl", "wget", "http", "httpie", "nc", "ncat", "netcat",
     "ssh", "scp", "sftp", "rsync", "socat",
 })
 
+FIND_EXEC_FLAGS = frozenset({
+    "-exec", "-execdir", "-ok", "-okdir", "-delete",
+})
+
+# Flags that take a path as the next argv element (or embedded after the flag).
+PATH_TAKING_SHORT_FLAGS = frozenset({
+    "C",  # tar -C, make -C
+    "t",  # cp -t
+    "z",  # git -C is long only; keep general
+})
+
 
 @dataclass
 class CommandPolicy:
-    """Explicit policy for which commands a worker may execute."""
-
     allowed: frozenset[str] = ALLOWED_COMMANDS
     denied: frozenset[str] = DENIED_COMMANDS
     allow_network: bool = False
@@ -211,8 +240,8 @@ class CommandPolicy:
 
             try:
                 argv = shlex.split(raw)
-            except ValueError as exc:
-                raise SecurityError(f"Could not parse command: {raw!r}") from exc
+            except ValueError as e:
+                raise SecurityError(f"Could not parse command: {raw!r}") from e
         else:
             argv = [str(a) for a in cmd]
             raw = " ".join(argv)
@@ -244,6 +273,10 @@ class CommandPolicy:
             self._check_rm_args(argv)
         if exe in {"chmod", "chown", "chgrp"}:
             raise SecurityError(f"{exe} is denied by default policy")
+        if exe == "find":
+            self._check_find_args(argv)
+        if exe == "git":
+            self._check_git_args(argv)
 
         if self.workspace is not None:
             self._check_path_args(argv)
@@ -257,31 +290,106 @@ class CommandPolicy:
         if any(a in {"/", "/*", "~", "$HOME"} for a in argv[1:]):
             raise SecurityError(f"rm targeting sensitive path is denied: {argv!r}")
 
+    def _check_find_args(self, argv: list[str]) -> None:
+        for a in argv[1:]:
+            if a in FIND_EXEC_FLAGS or a.startswith("-exec"):
+                raise SecurityError(
+                    f"find action {a!r} is denied (arbitrary command execution)"
+                )
+
+    def _check_git_args(self, argv: list[str]) -> None:
+        # Skip global options to find the subcommand
+        i = 1
+        while i < len(argv):
+            a = argv[i]
+            if a in {"-C", "--git-dir", "--work-tree"}:
+                i += 2
+                continue
+            if a.startswith("-"):
+                i += 1
+                continue
+            break
+        if i >= len(argv):
+            return
+        sub = argv[i].lower()
+
+        if not self.allow_network:
+            if sub in GIT_NETWORK_SUBCOMMANDS:
+                raise SecurityError(
+                    f"git {sub} requires network (allow_network=False)"
+                )
+            # Block URL-looking args even on local-ish commands
+            for a in argv[i + 1:]:
+                al = a.lower()
+                if al.startswith((
+                    "http://", "https://", "git://", "ssh://", "ftp://",
+                    "git@", "ssh:",
+                )):
+                    raise SecurityError(
+                        f"git remote URL denied when allow_network=False: {a!r}"
+                    )
+
     def _check_path_args(self, argv: list[str]) -> None:
+        """Validate path-like arguments, including -C/path short-opt forms."""
         assert self.workspace is not None
-        for arg in argv[1:]:
-            if arg.startswith("-") and not arg.startswith("--"):
-                if "=" not in arg:
-                    continue
+        i = 1
+        while i < len(argv):
+            arg = argv[i]
+
+            # Long opt --file=path or --file path
             if arg.startswith("--") and "=" in arg:
-                arg = arg.split("=", 1)[1]
-            if arg.startswith("-"):
+                self._validate_path_operand(arg.split("=", 1)[1])
+                i += 1
                 continue
-            if "/" not in arg and not arg.startswith("."):
+            if arg.startswith("--"):
+                i += 1
                 continue
-            p = Path(arg)
-            if p.is_absolute():
-                if not is_path_inside(self.workspace, p):
-                    raise SecurityError(
-                        f"Command argument path outside workspace: {arg!r}"
-                    )
-            else:
-                try:
-                    resolve_in_workspace(self.workspace, arg)
-                except SecurityError:
-                    raise SecurityError(
-                        f"Command argument path outside workspace: {arg!r}"
-                    )
+
+            # Short opts: -C/etc, -C /etc, -xfC/etc (last flag may embed path)
+            if arg.startswith("-") and not arg.startswith("--"):
+                body = arg[1:]
+                # Concatenated form -C/path or -t/tmp
+                for flag in PATH_TAKING_SHORT_FLAGS:
+                    if body.startswith(flag) and len(body) > len(flag):
+                        # path embedded after flag letter(s)
+                        embedded = body[len(flag):]
+                        if embedded.startswith("=") or embedded.startswith("/"):
+                            embedded = embedded.lstrip("=")
+                        if embedded and ("/" in embedded or embedded.startswith(".")):
+                            self._validate_path_operand(embedded)
+                # -C <next> form
+                if body in PATH_TAKING_SHORT_FLAGS or any(
+                    body.endswith(f) and len(body) == 1 for f in PATH_TAKING_SHORT_FLAGS
+                ):
+                    if body in PATH_TAKING_SHORT_FLAGS and i + 1 < len(argv):
+                        self._validate_path_operand(argv[i + 1])
+                        i += 2
+                        continue
+                i += 1
+                continue
+
+            # Positional path-like args
+            if "/" in arg or arg.startswith("."):
+                self._validate_path_operand(arg)
+            i += 1
+
+    def _validate_path_operand(self, arg: str) -> None:
+        assert self.workspace is not None
+        if not arg or arg.startswith("-"):
+            return
+        p = Path(arg)
+        if p.is_absolute():
+            if not is_path_inside(self.workspace, p):
+                raise SecurityError(
+                    f"Command argument path outside workspace: {arg!r}"
+                )
+        else:
+            try:
+                resolve_in_workspace(self.workspace, arg)
+            except SecurityError:
+                raise SecurityError(
+                    f"Command argument path outside workspace: {arg!r}"
+                )
 
 
 DEFAULT_POLICY = CommandPolicy()
@@ -317,6 +425,18 @@ PROVIDER_CREDENTIAL_VARS = frozenset(
     k for k, c in CREDENTIAL_ENV_VARS.items() if c == CredentialClass.PROVIDER
 )
 
+# Explicit allowlist of operational env vars for worker subprocesses.
+SAFE_ENV_ALLOWLIST = frozenset({
+    "PATH", "HOME", "USER", "LOGNAME", "SHELL", "TERM", "LANG", "LC_ALL",
+    "LC_CTYPE", "LC_MESSAGES", "LANGUAGE", "TZ", "TMPDIR", "TEMP", "TMP",
+    "PWD", "OLDPWD", "SHLVL", "_",
+    "PYTHONPATH", "PYTHONHOME", "PYTHONUNBUFFERED", "PYTHONDONTWRITEBYTECODE",
+    "VIRTUAL_ENV", "CONDA_PREFIX", "CONDA_DEFAULT_ENV",
+    "NODE_ENV", "npm_config_cache",
+    "CI", "CONTINUOUS_INTEGRATION",
+    "HTTP_PROXY", "HTTPS_PROXY", "NO_PROXY", "http_proxy", "https_proxy", "no_proxy",
+})
+
 SECRET_ENV_PATTERNS = (
     re.compile(r".*_API_KEY$", re.I),
     re.compile(r".*_SECRET$", re.I),
@@ -325,6 +445,10 @@ SECRET_ENV_PATTERNS = (
     re.compile(r".*_PRIVATE_KEY$", re.I),
     re.compile(r".*SECRET_KEY$", re.I),
     re.compile(r"^AWS_.*", re.I),
+    re.compile(r".*_KEY$", re.I),
+    re.compile(r".*WEBHOOK.*", re.I),
+    re.compile(r".*CONN.*STRING.*", re.I),
+    re.compile(r".*DATABASE_URL.*", re.I),
 )
 
 
@@ -332,17 +456,29 @@ def sanitize_worker_environ(
     base: dict[str, str] | None = None,
     *,
     extra_block: frozenset[str] | None = None,
+    extra_allow: frozenset[str] | None = None,
 ) -> dict[str, str]:
+    """Build worker env using an explicit allowlist of safe operational vars.
+
+    Anything not in SAFE_ENV_ALLOWLIST (plus extra_allow) is dropped.
+    Known credential names and secret-shaped names are always dropped.
+    """
     src = dict(base if base is not None else os.environ)
     blocked = set(CREDENTIAL_ENV_VARS.keys())
     if extra_block:
         blocked |= set(extra_block)
+
+    allow = set(SAFE_ENV_ALLOWLIST)
+    if extra_allow:
+        allow |= set(extra_allow)
 
     clean: dict[str, str] = {}
     for key, value in src.items():
         if key in blocked:
             continue
         if any(p.match(key) for p in SECRET_ENV_PATTERNS):
+            continue
+        if key not in allow:
             continue
         clean[key] = value
     return clean
