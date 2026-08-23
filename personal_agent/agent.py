@@ -1,10 +1,9 @@
 """CodingAgent: The main orchestration loop.
 
-    task -> (optional worktree) -> worker -> test -> hard gates -> arbiter
+    task -> (optional worktree) -> worker -> hard gates -> arbiter
          -> accept/reject -> retry -> apply diff / commit
 
-Deterministic verification (test failures, policy violations) always
-overrides LLM acceptance decisions.
+Deterministic verification always overrides LLM acceptance decisions.
 """
 
 from __future__ import annotations
@@ -24,45 +23,34 @@ from personal_agent.types import (
     TaskResult,
     WorkerResult,
 )
+from personal_agent.verification import (
+    VerificationConfig,
+    VerificationEvidence,
+    evaluate_hard_gates,
+)
 from personal_agent.worker import Worker
 
 logger = logging.getLogger(__name__)
 
 
-def _hard_gate_failures(worker_result: WorkerResult) -> list[str]:
-    """Return reasons that must force REJECT regardless of LLM judgment."""
-    reasons: list[str] = []
-    for tr in worker_result.test_results:
-        if tr.returncode != 0:
-            # Distinguish policy blocks from ordinary test failures
-            if "Blocked by security policy" in (tr.stderr or ""):
-                reasons.append(f"Security policy violation: {tr.command}")
-            else:
-                reasons.append(
-                    f"Command failed (exit {tr.returncode}): {tr.command}"
-                )
-    for change in worker_result.changes:
-        # apply_changes records policy failures as CommandResult in some paths;
-        # path escapes raise and are already reflected if apply returned errors.
-        pass
-    return reasons
+def _decision_from_evidence(evidence: VerificationEvidence) -> ArbiterDecision:
+    return ArbiterDecision(
+        decision=Decision.REJECT,
+        confidence=1.0,
+        reason="Hard verification gate failed: " + "; ".join(evidence.reasons),
+        findings=[
+            ArbiterFinding(severity="critical", description=r)
+            for r in evidence.reasons
+        ],
+        required_changes=[
+            "Fix failing tests, policy violations, or syntax errors before acceptance"
+        ],
+        model_used="hard-gate",
+    )
 
 
 class CodingAgent:
-    """Orchestrates the worker/arbiter loop for coding tasks.
-
-    Usage::
-
-        agent = CodingAgent("/path/to/repo")
-        result = await agent.run(Task(
-            description="Fix the bug in auth.py",
-            repo_path="/path/to/repo",
-        ))
-
-        if result.decision == Decision.ACCEPT:
-            print("Changes accepted!")
-            print(result.final_diff)
-    """
+    """Orchestrates the worker/arbiter loop for coding tasks."""
 
     def __init__(
         self,
@@ -71,16 +59,32 @@ class CodingAgent:
         router: Any | None = None,
         max_iterations: int = 3,
         use_worktree: bool = True,
+        verification: VerificationConfig | None = None,
     ) -> None:
         self._primary_repo = Repo(repo_path)
         self._router = router or create_free_router()
         self._max_iterations = max_iterations
         self._use_worktree = use_worktree
+        self._verification = verification or VerificationConfig()
 
     async def run(self, task: Task) -> TaskResult:
         """Execute the full worker/arbiter loop."""
         max_iter = task.max_iterations or self._max_iterations
         task.repo_path = str(self._primary_repo.path)
+
+        # Optional required checks from task.commands (e.g. pytest)
+        cfg = VerificationConfig(
+            check_commands=self._verification.check_commands,
+            check_policy_blocks=self._verification.check_policy_blocks,
+            check_path_escapes=self._verification.check_path_escapes,
+            check_python_syntax=self._verification.check_python_syntax,
+            required_command_substrings=list(
+                self._verification.required_command_substrings
+            ),
+        )
+        # If the task specifies commands, require each to appear in successes
+        # only when the user asked for them as gates — we treat task.commands
+        # as commands to run, not as required substrings unless configured.
 
         work_repo = self._primary_repo
         isolated = False
@@ -125,28 +129,13 @@ class CodingAgent:
                 worker_results.append(worker_result)
                 self._log_worker_result(worker_result, iteration)
 
-                # Deterministic hard gates — always authoritative (issue #5)
-                gate_failures = _hard_gate_failures(worker_result)
-                if gate_failures:
-                    decision = ArbiterDecision(
-                        decision=Decision.REJECT,
-                        confidence=1.0,
-                        reason=(
-                            "Hard verification gate failed: "
-                            + "; ".join(gate_failures)
-                        ),
-                        findings=[
-                            ArbiterFinding(
-                                severity="critical",
-                                description=r,
-                            )
-                            for r in gate_failures
-                        ],
-                        required_changes=[
-                            "Fix failing tests / remove policy-violating commands"
-                        ],
-                        model_used="hard-gate",
-                    )
+                evidence = evaluate_hard_gates(
+                    worker_result,
+                    workspace=work_repo.path,
+                    config=cfg,
+                )
+                if not evidence.passed:
+                    decision = _decision_from_evidence(evidence)
                     arbiter_decisions.append(decision)
                     self._log_arbiter_decision(decision, iteration)
                     if iteration == max_iter:
@@ -174,7 +163,6 @@ class CodingAgent:
                 and arbiter_decisions[-1].decision == Decision.ACCEPT
             )
 
-            # Explicit apply step when using an isolated worktree
             if isolated and accepted and final_diff.strip():
                 apply_result = work_repo.apply_diff_to(self._primary_repo)
                 if apply_result.returncode != 0:
@@ -182,7 +170,6 @@ class CodingAgent:
                         "Failed to apply accepted diff to primary tree: %s",
                         apply_result.stderr,
                     )
-                    # Downgrade to reject if apply failed
                     arbiter_decisions[-1] = ArbiterDecision(
                         decision=Decision.REJECT,
                         confidence=1.0,
@@ -192,7 +179,6 @@ class CodingAgent:
                         ),
                         model_used="apply-gate",
                     )
-                    accepted = False
 
             return TaskResult(
                 task=task,
@@ -215,7 +201,6 @@ class CodingAgent:
                     logger.warning("Worktree cleanup failed: %s", e)
 
     async def investigate_only(self, task: Task) -> WorkerResult:
-        """Run investigation without the arbiter loop."""
         try:
             await self._router.initialize()
         except Exception:
@@ -226,23 +211,18 @@ class CodingAgent:
     async def review_only(
         self, task: Task, worker_result: WorkerResult
     ) -> ArbiterDecision:
-        """Run arbiter review on existing worker results."""
         try:
             await self._router.initialize()
         except Exception:
             pass
+        evidence = evaluate_hard_gates(
+            worker_result,
+            workspace=self._primary_repo.path,
+            config=self._verification,
+        )
+        if not evidence.passed:
+            return _decision_from_evidence(evidence)
         arbiter = Arbiter(self._router, self._primary_repo)
-        gates = _hard_gate_failures(worker_result)
-        if gates:
-            return ArbiterDecision(
-                decision=Decision.REJECT,
-                confidence=1.0,
-                reason="Hard verification gate failed: " + "; ".join(gates),
-                findings=[
-                    ArbiterFinding(severity="critical", description=r) for r in gates
-                ],
-                model_used="hard-gate",
-            )
         return await arbiter.review(task, worker_result)
 
     def _generate_commit_message(
