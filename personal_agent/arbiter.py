@@ -2,6 +2,9 @@
 
 Receives the original task, worker's plan/result, diff, and test results.
 Returns a structured ArbiterDecision (accept/reject with findings).
+
+Secrets are redacted from prompts and feedback. Deterministic hard gates
+are enforced by CodingAgent before this reviewer is consulted.
 """
 
 from __future__ import annotations
@@ -11,6 +14,7 @@ import logging
 from typing import Any
 
 from personal_agent.repo import Repo
+from personal_agent.security import redact_secrets
 from personal_agent.types import (
     ArbiterDecision,
     ArbiterFinding,
@@ -104,6 +108,7 @@ Decision criteria:
 - REJECT if there are correctness issues, missing test coverage, or the task is not properly addressed
 - A few LOW/MEDIUM findings with passing tests can still be ACCEPTED
 - Any CRITICAL finding requires REJECT
+- You cannot override failed tests or security policy violations; those are handled separately
 """
 
 
@@ -120,11 +125,12 @@ class Arbiter:
 
     async def review(self, task: Task, worker_result: WorkerResult) -> ArbiterDecision:
         """Review worker's changes and return a structured decision."""
-        diff = self._repo.git_diff()
+        diff = redact_secrets(self._repo.git_diff())
         tree = self._repo.tree(max_depth=2)
 
         test_summary = "\n".join(
-            f"$ {r.command}\n  exit={r.returncode}\n  {r.stdout[:500]}\n  {r.stderr[:500]}"
+            f"$ {r.command}\n  exit={r.returncode}\n  "
+            f"{redact_secrets(r.stdout[:500])}\n  {redact_secrets(r.stderr[:500])}"
             for r in worker_result.test_results
         ) or "(no tests run)"
 
@@ -132,15 +138,20 @@ class Arbiter:
         for change in worker_result.changes:
             try:
                 content = self._repo.read_file(change.path)
-                changed_files += f"\n=== {change.path} (after change) ===\n{content[:5000]}\n"
+                changed_files += (
+                    f"\n=== {change.path} (after change) ===\n"
+                    f"{redact_secrets(content[:5000])}\n"
+                )
             except Exception:
                 continue
 
-        findings_text = "\n".join(f"- {f}" for f in worker_result.findings) or "(none)"
+        findings_text = "\n".join(
+            f"- {redact_secrets(f)}" for f in worker_result.findings
+        ) or "(none)"
 
         prompt = REVIEW_PROMPT.format(
             task_description=task.description,
-            plan=worker_result.plan,
+            plan=redact_secrets(worker_result.plan),
             findings=findings_text,
             diff=diff or "(no diff — no changes made)",
             test_results=test_summary,
@@ -200,20 +211,24 @@ class Arbiter:
     def format_feedback(self, decision: ArbiterDecision) -> str:
         """Format arbiter decision as actionable feedback for workers."""
         parts = [f"DECISION: {decision.decision.value.upper()}"]
-        parts.append(f"REASON: {decision.reason}")
+        parts.append(f"REASON: {redact_secrets(decision.reason)}")
 
         if decision.findings:
             parts.append("\nFINDINGS:")
             for f in decision.findings:
                 parts.append(
-                    f"  [{f.severity.upper()}] {f.description}"
+                    f"  [{f.severity.upper()}] {redact_secrets(f.description)}"
                     + (f" (in {f.file})" if f.file else "")
-                    + (f"\n    Suggestion: {f.suggestion}" if f.suggestion else "")
+                    + (
+                        f"\n    Suggestion: {redact_secrets(f.suggestion)}"
+                        if f.suggestion
+                        else ""
+                    )
                 )
 
         if decision.required_changes:
             parts.append("\nREQUIRED CHANGES:")
             for c in decision.required_changes:
-                parts.append(f"  - {c}")
+                parts.append(f"  - {redact_secrets(c)}")
 
         return "\n".join(parts)
