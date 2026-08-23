@@ -1,12 +1,9 @@
 """Repository inspection and modification utilities.
 
-Provides the tools workers need to inspect files, search code,
-read git state, run commands, and modify files in a repository.
-
 Security boundaries (see personal_agent.security):
 - All path operations are confined to the workspace root.
-- Commands are validated by CommandPolicy and preferably run as argv
-  (not shell=True).
+- Writes under .git/ are rejected (hook planting).
+- Commands are validated by CommandPolicy as argv (shell=False).
 - Provider credentials are stripped from the subprocess environment.
 """
 
@@ -23,6 +20,7 @@ from typing import Sequence
 from personal_agent.security import (
     CommandPolicy,
     SecurityError,
+    assert_writable_path,
     resolve_in_workspace,
     sanitize_worker_environ,
 )
@@ -50,12 +48,11 @@ class Repo:
             self.policy.workspace = self.path
         self.scrub_credentials = scrub_credentials
 
-    # ------------------------------------------------------------------
-    # Path-confined file operations
-    # ------------------------------------------------------------------
-
     def _resolve(self, rel_path: str) -> Path:
         return resolve_in_workspace(self.path, rel_path)
+
+    def _resolve_writable(self, rel_path: str) -> Path:
+        return assert_writable_path(self.path, rel_path)
 
     def read_file(self, rel_path: str) -> str:
         full = self._resolve(rel_path)
@@ -66,7 +63,7 @@ class Repo:
         return full.read_text()
 
     def write_file(self, rel_path: str, content: str) -> None:
-        full = self._resolve(rel_path)
+        full = self._resolve_writable(rel_path)
         parent = full.parent
         try:
             parent.relative_to(self.path)
@@ -76,7 +73,7 @@ class Repo:
         full.write_text(content)
 
     def delete_file(self, rel_path: str) -> None:
-        full = self._resolve(rel_path)
+        full = self._resolve_writable(rel_path)
         if full.exists() and full.is_file():
             full.unlink()
 
@@ -88,7 +85,6 @@ class Repo:
         )
 
     def grep(self, pattern: str, file_pattern: str = "*.py") -> list[tuple[str, int, str]]:
-        """Search for a pattern in files. Returns (file, line_no, line)."""
         results = []
         for fpath in self.list_files(f"**/{file_pattern}"):
             try:
@@ -98,10 +94,6 @@ class Repo:
             except Exception:
                 continue
         return results
-
-    # ------------------------------------------------------------------
-    # Git helpers (always go through policy)
-    # ------------------------------------------------------------------
 
     def git_status(self) -> str:
         return self.run_command(["git", "status", "--short"]).stdout
@@ -123,10 +115,6 @@ class Repo:
     def git_commit(self, message: str) -> CommandResult:
         return self.run_command(["git", "commit", "-m", message])
 
-    # ------------------------------------------------------------------
-    # Command execution under policy
-    # ------------------------------------------------------------------
-
     def run_command(
         self,
         cmd: str | Sequence[str],
@@ -134,11 +122,6 @@ class Repo:
         *,
         policy: CommandPolicy | None = None,
     ) -> CommandResult:
-        """Run a command under CommandPolicy with credential-scrubbed env.
-
-        Prefer passing an argv sequence. Strings are parsed with shlex and
-        validated; shell metacharacters are rejected unless policy.allow_shell.
-        """
         active = policy or self.policy
         display = cmd if isinstance(cmd, str) else " ".join(cmd)
 
@@ -228,16 +211,7 @@ class Repo:
             if entry.is_dir():
                 self._tree_walk(entry, prefix + "  ", depth + 1, max_depth, lines)
 
-    # ------------------------------------------------------------------
-    # Disposable worktrees (issue #4)
-    # ------------------------------------------------------------------
-
     def create_worktree(self, branch_name: str | None = None) -> "Repo":
-        """Create an isolated git worktree and return a Repo bound to it.
-
-        The original working tree is left unchanged. Caller must call
-        ``cleanup_worktree`` when done.
-        """
         import uuid
 
         name = branch_name or f"pa-work-{uuid.uuid4().hex[:10]}"
@@ -271,7 +245,6 @@ class Repo:
         return child
 
     def cleanup_worktree(self) -> None:
-        """Remove a worktree created by ``create_worktree``."""
         parent: Repo | None = getattr(self, "_worktree_parent", None)
         wt_path: Path | None = getattr(self, "_worktree_path", None)
         base: Path | None = getattr(self, "_worktree_base", None)
@@ -293,7 +266,6 @@ class Repo:
             shutil.rmtree(base, ignore_errors=True)
 
     def apply_diff_to(self, target: "Repo") -> CommandResult:
-        """Apply the current unstaged diff of this repo onto *target*."""
         diff = self.git_diff()
         if not diff.strip():
             return CommandResult(command="apply_diff", stdout="(no changes)")
