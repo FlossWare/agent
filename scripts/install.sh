@@ -1,107 +1,78 @@
 #!/usr/bin/env bash
-# Install personal-agent and configure it for your coding agent.
+# Install coding-agent-ai and configure it for your coding agent.
 #
 # Usage:
-#   curl -sSL https://raw.githubusercontent.com/FlossWare/personal-agent/main/scripts/install.sh | bash
+#   curl -sSL https://raw.githubusercontent.com/FlossWare/coding-agent-ai/main/scripts/install.sh | bash
 #   # or
 #   ./scripts/install.sh [--agent claude|cursor|opencode|all] [--repo /path/to/project]
 #
 # What it does:
-#   1. Installs personal-agent via pip
-#   2. Copies integration files for your chosen agent into your project
-#   3. Verifies API keys are set
+#   1. Installs coding-agent-ai via pip
+#   2. Copies agent integration files into the target repo
+#   3. Checks for API keys and prints setup guidance
 
 set -euo pipefail
 
+PA_REPO="https://github.com/FlossWare/coding-agent-ai.git"
 AGENT="all"
-REPO_DIR="."
-PA_REPO="https://github.com/FlossWare/personal-agent.git"
+REPO_DIR="$(pwd)"
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
-        --agent|-a) AGENT="$2"; shift 2 ;;
-        --repo|-r)  REPO_DIR="$2"; shift 2 ;;
-        --help|-h)
-            echo "Usage: install.sh [--agent claude|cursor|opencode|all] [--repo /path/to/project]"
-            echo ""
-            echo "Options:"
-            echo "  --agent, -a   Agent to configure (claude, cursor, opencode, all). Default: all"
-            echo "  --repo, -r    Project directory to install into. Default: current directory"
-            exit 0
-            ;;
+        --agent) AGENT="$2"; shift 2 ;;
+        --repo)  REPO_DIR="$2"; shift 2 ;;
         *) echo "Unknown option: $1"; exit 1 ;;
     esac
 done
 
-REPO_DIR="$(cd "$REPO_DIR" && pwd)"
-
-if [[ ! -d "$REPO_DIR/.git" ]]; then
-    echo "ERROR: $REPO_DIR is not a git repository."
-    exit 1
-fi
-
-echo "=== personal-agent installer ==="
-echo "Agent:   $AGENT"
-echo "Project: $REPO_DIR"
+echo "=== coding-agent-ai installer ==="
+echo "Agent target: $AGENT"
+echo "Project dir:  $REPO_DIR"
 echo ""
 
-# Step 1: Install personal-agent
-echo "[1/3] Installing personal-agent..."
-PIP_CMD=""
-if command -v pip &>/dev/null; then
-    PIP_CMD="pip"
-elif command -v pip3 &>/dev/null; then
-    PIP_CMD="pip3"
+# Step 1: Install coding-agent-ai
+echo "[1/3] Installing coding-agent-ai..."
+if command -v pip3 &>/dev/null; then
+    pip3 install --user "git+${PA_REPO}" || pip3 install "git+${PA_REPO}"
+elif command -v pip &>/dev/null; then
+    pip install --user "git+${PA_REPO}" || pip install "git+${PA_REPO}"
 else
-    echo "ERROR: pip not found. Install Python 3.11+ first."
+    echo "ERROR: pip not found. Install Python 3 and pip first."
     exit 1
 fi
+echo "  Installed."
 
-if ! $PIP_CMD install --quiet "git+${PA_REPO}" 2>&1; then
-    echo "ERROR: pip install failed. Check Python 3.11+ and network connectivity."
-    exit 1
+# Locate this repo's integrations/ (when run from a clone) or download them
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"
+INTEGRATIONS=""
+if [[ -d "$SCRIPT_DIR/../integrations" ]]; then
+    INTEGRATIONS="$SCRIPT_DIR/../integrations"
+elif [[ -d "$REPO_DIR/integrations" ]]; then
+    INTEGRATIONS="$REPO_DIR/integrations"
 fi
-
-if command -v pa &>/dev/null; then
-    echo "  pa CLI installed: $(which pa)"
-else
-    echo "  WARNING: pa not found in PATH. You may need to add ~/.local/bin to PATH."
-fi
-
-# Step 2: Copy integration files
-echo "[2/3] Setting up agent integration..."
-
-PA_TMPDIR="$(mktemp -d)"
-trap 'rm -rf "$PA_TMPDIR"' EXIT
-git clone --depth 1 --quiet "$PA_REPO" "$PA_TMPDIR/pa" || {
-    echo "ERROR: Could not clone $PA_REPO"
-    exit 1
-}
 
 copy_no_clobber() {
-    local src="$1" dst="$2"
-    if [[ ! -e "$dst" ]]; then
-        cp "$src" "$dst" && return 0
+    local src="$1" dest="$2"
+    if [[ -e "$dest" ]]; then
+        return 1
     fi
-    return 1
+    cp "$src" "$dest"
+    return 0
 }
 
 copy_integration() {
-    local agent="$1"
-    local src="$PA_TMPDIR/pa/integrations/$agent"
-
-    if [[ ! -d "$src" ]]; then
-        echo "  WARNING: No integration found for '$agent'"
+    local name="$1"
+    local src="$INTEGRATIONS/$name"
+    if [[ -z "$INTEGRATIONS" || ! -d "$src" ]]; then
+        echo "  Skipping $name (integrations not available in this context)"
         return
     fi
-
-    case "$agent" in
+    echo "[2/3] Configuring $name..."
+    case "$name" in
         claude-code)
             mkdir -p "$REPO_DIR/.claude/skills"
-            copy_no_clobber "$src/CLAUDE.md" "$REPO_DIR/CLAUDE.md" && echo "  Created CLAUDE.md" || echo "  CLAUDE.md already exists (skipped)"
-            for skill in "$src/skills/"*.md; do
-                name="$(basename "$skill")"
-                copy_no_clobber "$skill" "$REPO_DIR/.claude/skills/$name" && echo "  Created .claude/skills/$name" || echo "  .claude/skills/$name exists (skipped)"
+            for skill in pa-fix.md pa-investigate.md pa-review.md; do
+                copy_no_clobber "$src/skills/$skill" "$REPO_DIR/.claude/skills/$skill" && echo "  Created .claude/skills/$skill" || echo "  .claude/skills/$skill exists (skipped)"
             done
             if [[ -f "$src/hooks/pre-commit" ]]; then
                 mkdir -p "$REPO_DIR/.git/hooks"
