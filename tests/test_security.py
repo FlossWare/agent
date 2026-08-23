@@ -116,7 +116,7 @@ class TestCommandPolicy:
         assert argv == ["git", "status"]
 
     def test_deny_sudo(self):
-        with pytest.raises(SecurityError, match="denied"):
+        with pytest.raises(SecurityError, match="(?i)denied"):
             CommandPolicy().check("sudo apt install evil")
 
     def test_deny_shell_metachar(self):
@@ -140,12 +140,7 @@ class TestCommandPolicy:
             CommandPolicy().check("curl https://example.com")
 
     def test_allow_curl_when_network_enabled(self):
-        # Still may fail on other rules; at least not denied solely as network
         policy = CommandPolicy(allow_network=True)
-        # curl is in NETWORK_COMMANDS and denied set; allow_network adds to allowed
-        # but denied still includes curl from DENIED_COMMANDS — denied wins.
-        # Document: network tools must be removed from denied via extra or we
-        # treat allow_network as removing them from denied (effective_denied).
         argv = policy.check("curl https://example.com")
         assert argv[0] == "curl"
 
@@ -224,7 +219,6 @@ class TestCredentialIsolation:
         assert "or-secret-value" not in result.stdout
 
     def test_file_with_secret_redacted_in_gather_path(self):
-        # Redaction is applied to text; simulate model-visible content
         content = "api_key=sk-abcdefghijklmnopqrstuvwxyz1234"
         assert "sk-abcdefghijklmnopqrstuvwxyz1234" not in redact_secrets(content)
 
@@ -299,7 +293,6 @@ class TestWorktree:
         wt = git_repo.create_worktree()
         try:
             wt.write_file("junk.py", "boom = 1\n")
-            # Do not apply — primary must stay clean
             assert git_repo.git_status() == before
             assert not (git_repo.path / "junk.py").exists()
         finally:
