@@ -1,6 +1,6 @@
 # Security model
 
-personal-agent treats the coding **worker** as untrusted relative to the host.
+coding-agent-ai treats the coding **worker** as untrusted relative to the host.
 Security is enforced by deterministic policy layers, not by prompting the model.
 
 ## Trust boundaries
