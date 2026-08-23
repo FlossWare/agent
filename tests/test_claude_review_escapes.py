@@ -37,13 +37,13 @@ def git_repo(tmp_path):
 
 class TestFindExecBypass:
     def test_find_exec_denied(self):
-        # Avoid ';' so the find-specific check is what fires, not SHELL_METACHAR_RE
+        # Avoid ';', '{}', etc. so _check_find_args fires, not SHELL_METACHAR_RE
         with pytest.raises(SecurityError, match="find action"):
-            CommandPolicy().check(["find", ".", "-exec", "cat", "{}", "+"])
+            CommandPolicy().check(["find", ".", "-exec", "cat", "x", "+"])
 
     def test_find_execdir_denied(self):
         with pytest.raises(SecurityError, match="find action"):
-            CommandPolicy().check(["find", ".", "-execdir", "rm", "{}", "+"])
+            CommandPolicy().check(["find", ".", "-execdir", "rm", "x", "+"])
 
     def test_find_delete_denied(self):
         with pytest.raises(SecurityError, match="find action"):
@@ -156,7 +156,6 @@ class TestUpdateIndexGitlink:
 
 class TestGitRebaseExec:
     def test_rebase_x_denied(self):
-        # Payload without | sh so the -x flag check is what fires
         with pytest.raises(SecurityError, match="shell"):
             CommandPolicy().check(["git", "rebase", "-x", "id"])
 
