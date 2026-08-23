@@ -45,7 +45,7 @@ dev = [
 pa = "personal_agent.cli:main"
 
 [project.urls]
-Repository = "https://github.com/sfloess/personal-agent"
+Repository = "https://github.com/FlossWare/personal-agent"
 
 [tool.setuptools.packages.find]
 include = ["personal_agent*"]

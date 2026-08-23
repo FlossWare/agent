@@ -34,7 +34,7 @@ Press `t` to open the live theme picker with preview.
 
 
     Build AI coding-agent configs using FlossWare libraries
-    github.com/sfloess/personal-agent
+    github.com/FlossWare/personal-agent
 
     Theme: dark  (press 't' to change, Enter to start)
 ```

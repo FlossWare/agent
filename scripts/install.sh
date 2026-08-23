@@ -2,7 +2,7 @@
 # Install personal-agent and configure it for your coding agent.
 #
 # Usage:
-#   curl -sSL https://raw.githubusercontent.com/sfloess/personal-agent/main/scripts/install.sh | bash
+#   curl -sSL https://raw.githubusercontent.com/FlossWare/personal-agent/main/scripts/install.sh | bash
 #   # or
 #   ./scripts/install.sh [--agent claude|cursor|opencode|all] [--repo /path/to/project]
 #
@@ -15,7 +15,7 @@ set -euo pipefail
 
 AGENT="all"
 REPO_DIR="."
-PA_REPO="https://github.com/sfloess/personal-agent.git"
+PA_REPO="https://github.com/FlossWare/personal-agent.git"
 
 while [[ $# -gt 0 ]]; do
     case "$1" in

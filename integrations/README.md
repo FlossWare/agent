@@ -1,6 +1,6 @@
 # Agent Integrations
 
-Ready-to-use configurations for integrating [personal-agent](https://github.com/sfloess/personal-agent) with popular AI coding agents.
+Ready-to-use configurations for integrating [personal-agent](https://github.com/FlossWare/personal-agent) with popular AI coding agents.
 
 ## Supported Agents
 
@@ -49,7 +49,7 @@ All integrations require:
 
 1. **personal-agent installed:**
    ```bash
-   pip install git+https://github.com/sfloess/personal-agent.git
+   pip install git+https://github.com/FlossWare/personal-agent.git
    ```
 
 2. **At least one free-tier provider API key:**

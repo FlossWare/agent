@@ -1,12 +1,12 @@
 # OpenCode / Codex Integration for personal-agent
 
-Use [personal-agent](https://github.com/sfloess/personal-agent) with OpenCode or Codex for AI-powered code review and implementation with free models.
+Use [personal-agent](https://github.com/FlossWare/personal-agent) with OpenCode or Codex for AI-powered code review and implementation with free models.
 
 ## Setup
 
 1. Install personal-agent:
    ```bash
-   pip install git+https://github.com/sfloess/personal-agent.git
+   pip install git+https://github.com/FlossWare/personal-agent.git
    ```
 
 2. Set at least one free-tier provider key:

@@ -22,7 +22,7 @@ import textwrap
 from dataclasses import dataclass, field
 from pathlib import Path
 
-PA_REPO = "https://github.com/sfloess/personal-agent.git"
+PA_REPO = "https://github.com/FlossWare/personal-agent.git"
 
 # --- Data Models ---
 
@@ -397,7 +397,7 @@ def generate_claude_md(cfg):
 
     sections = [
         "## Personal Agent Integration\n",
-        "This project uses [personal-agent](https://github.com/sfloess/personal-agent) ",
+        "This project uses [personal-agent](https://github.com/FlossWare/personal-agent) ",
         "for AI-assisted development with free LLM models.\n",
     ]
 
@@ -925,7 +925,7 @@ def main(stdscr):
     stdscr.addstr(y, 2, "Build AI coding-agent configs using FlossWare libraries",
                   curses.color_pair(theme.colors.foreground))
     y += 1
-    stdscr.addstr(y, 2, "github.com/sfloess/personal-agent",
+    stdscr.addstr(y, 2, "github.com/FlossWare/personal-agent",
                   curses.color_pair(theme.colors.info))
     y += 1
     stdscr.addstr(y, 2, f"Theme: {cfg.theme_name}  (press 't' to change, Enter to start)",
