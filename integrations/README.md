@@ -52,14 +52,14 @@ All integrations require:
    pip install git+https://github.com/FlossWare/coding-agent-ai.git
    ```
 
-2. **At least one free-tier provider API key:**
+2. **At least one configured provider credential:**
    ```bash
-   export COHERE_API_KEY="your-key"    # Recommended — most reliable
-   export GROQ_API_KEY="your-key"      # Fast inference
+   export COHERE_API_KEY="your-key"
+   export GROQ_API_KEY="your-key"
    export OPENROUTER_API_KEY="your-key"
    ```
 
-   All listed providers offer free-tier access — no paid API keys required. Set multiple keys for automatic failover between providers.
+   Provider availability, model selection, cost, and failover are controlled by the configured FlossWare routing/policy layer. Use whichever providers are approved for your environment, including free-tier, paid, local, or enterprise-approved providers.
 
 ## Common Commands
 
