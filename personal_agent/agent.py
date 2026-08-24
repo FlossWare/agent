@@ -82,13 +82,6 @@ class CodingAgent:
             if isolated and accepted and final_diff.strip():
                 apply_result = work_repo.apply_diff_to(self._primary_repo)
                 if apply_result.returncode != 0:
-                    failure = VerificationEvidence(
-                        passed=False,
-                        failures=[
-                            # Keep this deterministic apply gate visible in the same evidence channel.
-                            # The existing enum is intentionally reused for audit compatibility.
-                        ],
-                    )
                     arbiter_decisions[-1] = ArbiterDecision(
                         decision=Decision.REJECT,
                         confidence=1.0,
