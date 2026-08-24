@@ -1,4 +1,4 @@
-## Personal Agent (FlossWare)
+## Coding Agent (FlossWare)
 
 AI coding-agent using free LLM models only. Worker/arbiter loop for code changes.
 
