@@ -72,10 +72,7 @@ class CodingAgent:
                 ))
                 worker_results.append(worker_result)
                 evidence = evaluate_hard_gates(worker_result, workspace=work_repo.path, config=cfg)
-                if not evidence.passed:
-                    decision = _decision_from_evidence(evidence)
-                else:
-                    decision = await arbiter.review(task, worker_result)
+                decision = _decision_from_evidence(evidence) if not evidence.passed else await arbiter.review(task, worker_result)
                 arbiter_decisions.append(decision)
                 if decision.decision == Decision.ACCEPT or iteration == max_iter:
                     break
@@ -85,8 +82,20 @@ class CodingAgent:
             if isolated and accepted and final_diff.strip():
                 apply_result = work_repo.apply_diff_to(self._primary_repo)
                 if apply_result.returncode != 0:
-                    arbiter_decisions[-1] = _decision_from_evidence(
-                        VerificationEvidence(False, ["Accepted diff could not be applied to primary tree"])
+                    failure = VerificationEvidence(
+                        passed=False,
+                        failures=[
+                            # Keep this deterministic apply gate visible in the same evidence channel.
+                            # The existing enum is intentionally reused for audit compatibility.
+                        ],
+                    )
+                    arbiter_decisions[-1] = ArbiterDecision(
+                        decision=Decision.REJECT,
+                        confidence=1.0,
+                        reason="Accepted diff could not be applied to primary tree: " + (apply_result.stderr or apply_result.stdout),
+                        findings=[ArbiterFinding(severity="critical", description="Apply failure")],
+                        required_changes=["Resolve the accepted diff application failure"],
+                        model_used="apply-gate",
                     )
             return TaskResult(
                 task=task,
