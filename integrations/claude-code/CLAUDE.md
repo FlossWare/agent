@@ -1,11 +1,11 @@
-## Personal Agent Integration
+## Coding Agent Integration
 
-This project uses [personal-agent](https://github.com/FlossWare/personal-agent) for AI-assisted code review and implementation using free LLM models.
+This project uses [coding-agent-ai](https://github.com/FlossWare/coding-agent-ai) for AI-assisted code review and implementation using free LLM models.
 
 ### Prerequisites
 
 ```bash
-pip install git+https://github.com/FlossWare/personal-agent.git
+pip install git+https://github.com/FlossWare/coding-agent-ai.git
 ```
 
 Set at least one free provider key (all are free-tier access):
