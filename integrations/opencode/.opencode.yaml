@@ -1,10 +1,10 @@
-# OpenCode configuration for personal-agent integration
+# OpenCode configuration for coding-agent-ai integration
 #
 # Place this file at the root of your project alongside AGENTS.md.
 # OpenCode will use AGENTS.md for agent instructions.
 
 agents:
-  personal-agent:
+  coding-agent-ai:
     description: "AI coding agent with worker/arbiter loop (free models only)"
     command: "pa"
     args:
