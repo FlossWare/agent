@@ -2,58 +2,55 @@
 
 FlossWare coding-agent execution/orchestration stack that composes FlossWare capabilities into a worker/arbiter loop for real software-engineering workflows.
 
-**Provider-agnostic.** Model selection and routing are delegated to FlossWare's model-routing layer, so deployments can use free, paid, local, or enterprise-approved providers according to their configured policy and credentials.
+**Provider- and pricing-neutral.** Model selection and routing are delegated to FlossWare's model-routing layer. The runtime does not require, prefer, or assume a particular provider, vendor, hosting topology, or pricing tier. Selection is determined by capability, policy, availability, authentication, cost, and other workload constraints as applicable.
 
 ## How It Works
 
-```
-Task → (isolated worktree) → Worker → Tests → Hard gates → Arbiter → Accept/Reject → Apply → Commit
+```text
+Task → isolated worktree → Worker → Tests → Hard gates → Arbiter → Accept/Reject → Apply → Commit
 ```
 
-1. **Worktree** — each run executes in a disposable git worktree so the primary checkout is untouched until acceptance
-2. **Worker** receives a task, inspects the repository, formulates a plan, makes changes, runs tests
-3. **Hard gates** force REJECT on test failures or security-policy violations (LLM cannot override)
-4. **Arbiter** independently reviews changes with structured accept/reject decisions
-5. If **rejected**, the worker receives actionable feedback and retries (up to N iterations)
-6. If **accepted**, the worktree diff is applied to the primary tree and is ready for commit/PR
+1. **Worktree** — each run executes in a disposable git worktree so the primary checkout is untouched until acceptance.
+2. **Worker** receives a task, inspects the repository, formulates a plan, makes changes, and runs tests.
+3. **Hard gates** force REJECT on test failures or security-policy violations. The model cannot override them.
+4. **Arbiter** independently reviews changes with structured accept/reject decisions.
+5. If **rejected**, the worker receives actionable feedback and retries up to the configured iteration limit.
+6. If **accepted**, the worktree diff is applied to the primary tree and is ready for review/commit/PR.
 
-## Install
+## Install on Fedora
+
+For the current dogfood milestone, use `FlossWare/coding-agent-setup` as the installation entry point. Fedora is the Tier-1 supported installation target.
 
 ```bash
-pip install git+https://github.com/FlossWare/coding-agent-ai.git
+git clone https://github.com/FlossWare/coding-agent-setup.git
+cd coding-agent-setup
+./scripts/install.sh
 ```
 
-Or for development:
+The installer creates an isolated environment under `~/.flossware/venv`, installs `coding-agent-ai` and its selected FlossWare capabilities, validates the runtime, and installs `~/.local/bin/flossware-setup`.
 
-```bash
-git clone https://github.com/FlossWare/coding-agent-ai.git
-cd coding-agent-ai
-pip install -e ".[dev]"
-```
-
-### Interactive Setup (TUI)
-
-```bash
-python3 scripts/setup.py
-python3 scripts/setup.py --theme borland-3d
-```
-
-See [docs/SETUP.md](docs/SETUP.md). Non-interactive: `./scripts/install.sh --agent all --repo .`
+See [coding-agent-setup Fedora guide](https://github.com/FlossWare/coding-agent-setup/blob/main/docs/platforms/fedora.md).
 
 ## Quick Start
 
 ```bash
-pa "Fix the failing test in test_auth.py" --repo . -c "pytest tests/"
+cd /path/to/your/git/repository
+~/.local/bin/flossware-setup
+
+# After authentication/configuration:
+source ~/.flossware/venv/bin/activate
 pa --investigate "What are the main components?" --repo .
-pa "Add input validation to the API" --repo . --commit
+pa "Fix the failing test in test_auth.py" --repo . --commands pytest --max-iter 3
 ```
+
+Do not use `--commit` on the first dogfood run. Review the generated diff and test results before enabling automatic commits.
 
 ```python
 import asyncio
 from personal_agent import CodingAgent, Task, Decision
 
 async def main():
-    agent = CodingAgent("/path/to/repo")  # use_worktree=True by default
+    agent = CodingAgent("/path/to/repo")
     result = await agent.run(Task(
         description="Fix the bug in auth.py",
         commands=["pytest tests/"],
@@ -69,7 +66,7 @@ asyncio.run(main())
 
 ## Provider Credentials
 
-The following environment variables are supported by the current provider/router integrations. They are examples of provider credentials, not a restriction to free providers:
+The runtime consumes provider/router credentials through the configured authentication boundary. Supported environment variables currently include:
 
 | Provider | Environment Variable |
 |----------|---------------------|
@@ -80,22 +77,36 @@ The following environment variables are supported by the current provider/router
 | Gemini | `GEMINI_API_KEY` |
 | HuggingFace | `HUGGINGFACE_API_KEY` |
 
-Provider keys stay in the router process only; worker subprocesses use a scrubbed environment. See [docs/SECURITY.md](docs/SECURITY.md).
+These are integration examples, not a closed provider list or architectural preference. Credentials must remain outside generated source/configuration artifacts. Where a provider exposes an existing authenticated CLI/session, setup SHOULD reuse that capability rather than requiring duplicate credentials.
+
+## Architecture
+
+```text
+request
+  -> policy / model router
+  -> provider-neutral contract
+  -> cross-cutting decorators
+  -> provider adapter
+  -> model/runtime
+```
+
+Decorators provide cross-cutting behavior such as resilience, security, observability, evaluation, structured-output validation, and token/cost accounting. They must not encode provider or pricing preferences.
 
 ## Safety
 
-Full model: **[docs/SECURITY.md](docs/SECURITY.md)**
+See [docs/SECURITY.md](docs/SECURITY.md).
 
 - **Command policy** — allowlist/denylist, argv execution, network as explicit capability
 - **Filesystem confinement** — paths must resolve under workspace root
 - **Credential isolation** — provider/repo/cloud/registry/SSH secrets stripped from worker env
-- **Secret redaction** — tokens redacted from logs, prompts, feedback (`SecretRedactor`)
-- **Hard verification gates** — tests/policy/syntax failures force REJECT; LLM cannot override
+- **Secret redaction** — tokens redacted from logs, prompts, and feedback (`SecretRedactor`)
+- **Hard verification gates** — tests/policy/syntax failures force REJECT; the model cannot override
 - **Disposable worktrees** — primary tree unchanged until accepted diff is applied
 
 ## Development
 
 ```bash
+source ~/.flossware/venv/bin/activate
 pip install -e ".[dev]"
 pytest tests/ -v
 ```
