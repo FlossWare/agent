@@ -12,7 +12,7 @@ requires-python = ">=3.11"
 authors = [
     {name = "Scot P. Floess", email = "sfloess@gmail.com"},
 ]
-keywords = ["ai", "coding-agent", "flossware", "free-models"]
+keywords = ["ai", "coding-agent", "flossware", "model-routing", "agent-orchestration"]
 classifiers = [
     "Development Status :: 3 - Alpha",
     "License :: OSI Approved :: MIT License",
