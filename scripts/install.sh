@@ -8,71 +8,101 @@
 #
 # What it does:
 #   1. Installs coding-agent-ai via pip
-#   2. Copies agent integration files into the target repo
-#   3. Checks for API keys and prints setup guidance
+#   2. Copies integration files for your chosen agent into your project
+#   3. Verifies API keys are set
 
 set -euo pipefail
 
-PA_REPO="https://github.com/FlossWare/coding-agent-ai.git"
 AGENT="all"
-REPO_DIR="$(pwd)"
+REPO_DIR="."
+PA_REPO="https://github.com/FlossWare/coding-agent-ai.git"
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
-        --agent) AGENT="$2"; shift 2 ;;
-        --repo)  REPO_DIR="$2"; shift 2 ;;
+        --agent|-a) AGENT="$2"; shift 2 ;;
+        --repo|-r)  REPO_DIR="$2"; shift 2 ;;
+        --help|-h)
+            echo "Usage: install.sh [--agent claude|cursor|opencode|all] [--repo /path/to/project]"
+            echo ""
+            echo "Options:"
+            echo "  --agent, -a   Agent to configure (claude, cursor, opencode, all). Default: all"
+            echo "  --repo, -r    Project directory to install into. Default: current directory"
+            exit 0
+            ;;
         *) echo "Unknown option: $1"; exit 1 ;;
     esac
 done
 
+REPO_DIR="$(cd "$REPO_DIR" && pwd)"
+
+if [[ ! -d "$REPO_DIR/.git" ]]; then
+    echo "ERROR: $REPO_DIR is not a git repository."
+    exit 1
+fi
+
 echo "=== coding-agent-ai installer ==="
-echo "Agent target: $AGENT"
-echo "Project dir:  $REPO_DIR"
+echo "Agent:   $AGENT"
+echo "Project: $REPO_DIR"
 echo ""
 
 # Step 1: Install coding-agent-ai
 echo "[1/3] Installing coding-agent-ai..."
-if command -v pip3 &>/dev/null; then
-    pip3 install --user "git+${PA_REPO}" || pip3 install "git+${PA_REPO}"
-elif command -v pip &>/dev/null; then
-    pip install --user "git+${PA_REPO}" || pip install "git+${PA_REPO}"
+PIP_CMD=""
+if command -v pip &>/dev/null; then
+    PIP_CMD="pip"
+elif command -v pip3 &>/dev/null; then
+    PIP_CMD="pip3"
 else
-    echo "ERROR: pip not found. Install Python 3 and pip first."
+    echo "ERROR: pip not found. Install Python 3.11+ first."
     exit 1
 fi
-echo "  Installed."
 
-# Locate this repo's integrations/ (when run from a clone) or download them
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"
-INTEGRATIONS=""
-if [[ -d "$SCRIPT_DIR/../integrations" ]]; then
-    INTEGRATIONS="$SCRIPT_DIR/../integrations"
-elif [[ -d "$REPO_DIR/integrations" ]]; then
-    INTEGRATIONS="$REPO_DIR/integrations"
+# git+ installs require building from source; --only-binary is not applicable.
+if ! $PIP_CMD install --quiet "git+${PA_REPO}" 2>&1; then # NOSONAR
+    echo "ERROR: pip install failed. Check Python 3.11+ and network connectivity."
+    exit 1
 fi
 
+if command -v pa &>/dev/null; then
+    echo "  pa CLI installed: $(which pa)"
+else
+    echo "  WARNING: pa not found in PATH. You may need to add ~/.local/bin to PATH."
+fi
+
+# Step 2: Copy integration files
+echo "[2/3] Setting up agent integration..."
+
+PA_TMPDIR="$(mktemp -d)"
+trap 'rm -rf "$PA_TMPDIR"' EXIT
+git clone --depth 1 --quiet "$PA_REPO" "$PA_TMPDIR/pa" || {
+    echo "ERROR: Could not clone $PA_REPO"
+    exit 1
+}
+
 copy_no_clobber() {
-    local src="$1" dest="$2"
-    if [[ -e "$dest" ]]; then
-        return 1
+    local src="$1" dst="$2"
+    if [[ ! -e "$dst" ]]; then
+        cp "$src" "$dst" && return 0
     fi
-    cp "$src" "$dest"
-    return 0
+    return 1
 }
 
 copy_integration() {
-    local name="$1"
-    local src="$INTEGRATIONS/$name"
-    if [[ -z "$INTEGRATIONS" || ! -d "$src" ]]; then
-        echo "  Skipping $name (integrations not available in this context)"
+    local agent="$1"
+    local src="$PA_TMPDIR/pa/integrations/$agent"
+
+    if [[ ! -d "$src" ]]; then
+        echo "  WARNING: No integration found for '$agent'"
         return
     fi
-    echo "[2/3] Configuring $name..."
-    case "$name" in
+
+    case "$agent" in
         claude-code)
             mkdir -p "$REPO_DIR/.claude/skills"
-            for skill in pa-fix.md pa-investigate.md pa-review.md; do
-                copy_no_clobber "$src/skills/$skill" "$REPO_DIR/.claude/skills/$skill" && echo "  Created .claude/skills/$skill" || echo "  .claude/skills/$skill exists (skipped)"
+            copy_no_clobber "$src/CLAUDE.md" "$REPO_DIR/CLAUDE.md" && echo "  Created CLAUDE.md" || echo "  CLAUDE.md already exists (skipped)"
+            for skill in "$src/skills/"*.md; do
+                name="$(basename "$skill")"
+                copy_no_clobber "$skill" "$REPO_DIR/.claude/skills/$name" && echo "  Created .claude/skills/$name" || echo "  .claude/skills/$name exists (skipped)"
             done
             if [[ -f "$src/hooks/pre-commit" ]]; then
                 mkdir -p "$REPO_DIR/.git/hooks"
