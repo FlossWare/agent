@@ -7,7 +7,7 @@ one possible worker implementation, not a requirement of the abstraction.
 
 from personal_agent.capability import CapableWorker, CapabilityArbiter, FunctionWorker, Synthesis, Work
 from personal_agent.types import ArbiterDecision, Decision, FileChange, CommandResult, Task, TaskResult, WorkerResult
-from personal_agent.router import create_free_router
+from personal_agent.router import create_router
 from personal_agent.worker import Worker
 from personal_agent.arbiter import Arbiter
 from personal_agent.agent import CodingAgent
@@ -21,6 +21,6 @@ __all__ = [
     "CommandPolicy", "CommandResult", "CredentialClass", "Decision", "FileChange",
     "FunctionWorker", "SecretRedactor", "SecurityError", "Synthesis", "Task", "TaskResult",
     "VerificationConfig", "VerificationEvidence", "Worker", "WorkerResult", "Work",
-    "create_free_router", "evaluate_hard_gates", "redact_secrets", "resolve_in_workspace",
+    "create_router", "evaluate_hard_gates", "redact_secrets", "resolve_in_workspace",
     "sanitize_worker_environ",
 ]
