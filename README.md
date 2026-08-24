@@ -1,21 +1,50 @@
 # coding-agent-ai
 
-FlossWare coding-agent execution/orchestration stack that composes FlossWare capabilities into a worker/arbiter loop for real software-engineering workflows.
+FlossWare coding-agent execution/orchestration stack built around a provider-neutral **worker / arbiter** architecture.
 
-**Provider- and pricing-neutral.** Model selection and routing are delegated to FlossWare's model-routing layer. The runtime does not require, prefer, or assume a particular provider, vendor, hosting topology, or pricing tier. Selection is determined by capability, policy, availability, authentication, cost, and other workload constraints as applicable.
+## Core model
 
-## How It Works
+A **worker is any capable unit of work**. It is not synonymous with an LLM. A worker may be deterministic code, a CLI, MCP capability, another agent, a local model, a hosted model, a test runner, or a composite worker.
 
 ```text
-Task → isolated worktree → Worker → Tests → Hard gates → Arbiter → Accept/Reject → Apply → Commit
+Work
+  -> capability matching
+  -> Workers
+       -> deterministic tool
+       -> CLI
+       -> MCP capability
+       -> agent
+       -> model
+       -> composite worker
+  -> Arbiter
+       -> collect evidence
+       -> detect disagreement
+       -> synthesize
+  -> Result
 ```
 
-1. **Worktree** — each run executes in a disposable git worktree so the primary checkout is untouched until acceptance.
-2. **Worker** receives a task, inspects the repository, formulates a plan, makes changes, and runs tests.
-3. **Hard gates** force REJECT on test failures or security-policy violations. The model cannot override them.
-4. **Arbiter** independently reviews changes with structured accept/reject decisions.
-5. If **rejected**, the worker receives actionable feedback and retries up to the configured iteration limit.
-6. If **accepted**, the worktree diff is applied to the primary tree and is ready for review/commit/PR.
+The arbiter is the synthesis boundary. Model-based consensus is one possible synthesis implementation, not a prerequisite for the architecture.
+
+## Coding-agent workflow
+
+The repository also provides a concrete software-engineering worker/arbiter loop:
+
+```text
+Task -> isolated worktree -> Worker -> Tests -> Hard gates -> Arbiter -> Accept/Reject -> Apply
+```
+
+1. Each run can execute in a disposable git worktree.
+2. A coding worker investigates, plans, changes files, and runs tests.
+3. Deterministic hard gates can reject failures regardless of model output.
+4. An independent arbiter reviews the proposed result.
+5. Rejection feeds actionable feedback back to the worker for another iteration.
+6. Accepted changes can be applied to the primary tree.
+
+## Provider and pricing neutrality
+
+Provider, model, vendor, hosting topology, authentication mechanism, and pricing are **routing and policy inputs**, not architectural defaults. The runtime does not require or prefer a particular provider or pricing tier.
+
+See `personal_agent/capability.py` for the generic capability-worker contract and `personal_agent/arbiter.py` for the coding-review arbiter.
 
 ## Install on Fedora
 
@@ -27,88 +56,59 @@ cd coding-agent-setup
 ./scripts/install.sh
 ```
 
-The installer creates an isolated environment under `~/.flossware/venv`, installs `coding-agent-ai` and its selected FlossWare capabilities, validates the runtime, and installs `~/.local/bin/flossware-setup`.
+## Quick start
 
-See [coding-agent-setup Fedora guide](https://github.com/FlossWare/coding-agent-setup/blob/main/docs/platforms/fedora.md).
-
-## Quick Start
+After installation and explicit authentication/configuration:
 
 ```bash
 cd /path/to/your/git/repository
-~/.local/bin/flossware-setup
-
-# After authentication/configuration:
 source ~/.flossware/venv/bin/activate
 pa --investigate "What are the main components?" --repo .
 pa "Fix the failing test in test_auth.py" --repo . --commands pytest --max-iter 3
 ```
 
-Do not use `--commit` on the first dogfood run. Review the generated diff and test results before enabling automatic commits.
+Do not use `--commit` on the first dogfood run. Review the generated diff and verification results first.
+
+## Generic capability API
 
 ```python
 import asyncio
-from personal_agent import CodingAgent, Task, Decision
+from personal_agent import CapabilityArbiter, FunctionWorker, Work
 
 async def main():
-    agent = CodingAgent("/path/to/repo")
-    result = await agent.run(Task(
-        description="Fix the bug in auth.py",
-        commands=["pytest tests/"],
-        max_iterations=3,
-    ))
-    if result.decision == Decision.ACCEPT:
-        print(result.final_diff)
+    workers = [
+        FunctionWorker("static-check", {"inspect"}, lambda work: "static evidence"),
+        FunctionWorker("tests", {"inspect", "verify"}, lambda work: "tests evidence"),
+    ]
+    result = await CapabilityArbiter(workers).execute(
+        Work("inspect repository", frozenset({"inspect"}))
+    )
+    print(result.conclusion)
 
 asyncio.run(main())
 ```
 
-> **Compatibility note:** the distribution/repository is `coding-agent-ai`; the Python import package remains `personal_agent` for API compatibility. A future major release may provide a `coding_agent_ai` import with a compatibility shim.
+This API deliberately has no provider-specific dependency. A model-backed worker can be added without changing the work or arbiter contracts.
 
-## Provider Credentials
+## Credentials
 
-The runtime consumes provider/router credentials through the configured authentication boundary. Supported environment variables currently include:
-
-| Provider | Environment Variable |
-|----------|---------------------|
-| Cohere | `COHERE_API_KEY` |
-| Groq | `GROQ_API_KEY` |
-| OpenRouter | `OPENROUTER_API_KEY` |
-| Cerebras | `CEREBRAS_API_KEY` |
-| Gemini | `GEMINI_API_KEY` |
-| HuggingFace | `HUGGINGFACE_API_KEY` |
-
-These are integration examples, not a closed provider list or architectural preference. Credentials must remain outside generated source/configuration artifacts. Where a provider exposes an existing authenticated CLI/session, setup SHOULD reuse that capability rather than requiring duplicate credentials.
-
-## Architecture
-
-```text
-request
-  -> policy / model router
-  -> provider-neutral contract
-  -> cross-cutting decorators
-  -> provider adapter
-  -> model/runtime
-```
-
-Decorators provide cross-cutting behavior such as resilience, security, observability, evaluation, structured-output validation, and token/cost accounting. They must not encode provider or pricing preferences.
+Credentials belong to the authentication boundary and must not be embedded in source, generated configuration, images, or Git history. Existing authenticated CLI/session capabilities SHOULD be reused where supported rather than requiring duplicate credentials.
 
 ## Safety
 
-See [docs/SECURITY.md](docs/SECURITY.md).
-
-- **Command policy** — allowlist/denylist, argv execution, network as explicit capability
-- **Filesystem confinement** — paths must resolve under workspace root
-- **Credential isolation** — provider/repo/cloud/registry/SSH secrets stripped from worker env
-- **Secret redaction** — tokens redacted from logs, prompts, and feedback (`SecretRedactor`)
-- **Hard verification gates** — tests/policy/syntax failures force REJECT; the model cannot override
-- **Disposable worktrees** — primary tree unchanged until accepted diff is applied
+- command policy and filesystem confinement
+- credential isolation and secret redaction
+- deterministic verification gates
+- disposable worktrees
+- independent arbitration
 
 ## Development
 
 ```bash
-source ~/.flossware/venv/bin/activate
-pip install -e ".[dev]"
-pytest tests/ -v
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -e '.[dev]'
+pytest -q
 ```
 
 ## License
