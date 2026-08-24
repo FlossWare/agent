@@ -1,4 +1,4 @@
-## Personal Agent
+## Coding Agent
 
 AI coding agent using free-tier LLM models for code review and implementation.
 

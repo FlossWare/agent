@@ -1,6 +1,6 @@
-## Personal Agent
+## Coding Agent
 
-AI coding agent that uses free LLM models to investigate, modify, test, and review code changes.
+FlossWare coding-agent-ai uses configured LLM providers to investigate, modify, test, and review code changes. Model selection is controlled by the FlossWare routing/policy layer.
 
 ### Usage
 
@@ -23,15 +23,19 @@ pa "Add input validation to the API" --repo . --commit
 4. If **rejected**, worker receives structured feedback and retries
 5. If **accepted**, changes are ready for commit/PR
 
-### API Keys
+### Provider Credentials
 
-Set one or more free provider keys (multiple enables automatic failover):
-- `COHERE_API_KEY` - Cohere (command-a-03-2025, recommended)
-- `GROQ_API_KEY` - Groq (qwen/qwen3.6-27b)
-- `OPENROUTER_API_KEY` - OpenRouter (free-tier models)
-- `CEREBRAS_API_KEY` - Cerebras (llama-3.3-70b)
-- `GEMINI_API_KEY` - Google Gemini
-- `HUGGINGFACE_API_KEY` - HuggingFace
+Configure one or more provider credentials supported by the installed routing layer. Provider choice is policy-driven and may include free-tier, paid, local, or enterprise-approved providers. Never expose provider credentials to the worker environment.
+
+Examples:
+- `COHERE_API_KEY`
+- `GROQ_API_KEY`
+- `OPENROUTER_API_KEY`
+- `CEREBRAS_API_KEY`
+- `GEMINI_API_KEY`
+- `HUGGINGFACE_API_KEY`
+
+Multiple configured providers can enable automatic failover when supported by the router.
 
 ### Python API
 

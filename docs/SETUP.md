@@ -1,6 +1,6 @@
 # Interactive TUI Setup
 
-personal-agent includes an interactive TUI builder that configures AI coding agents
+coding-agent-ai includes an interactive TUI builder that configures AI coding agents
 with FlossWare libraries, budget awareness, and provider selection.
 
 ## Quick Start
@@ -29,12 +29,12 @@ Choose your theme or press Enter to start with the default dark theme.
 Press `t` to open the live theme picker with preview.
 
 ```
-                     personal-agent builder
+                     coding-agent-ai builder
 
 
 
     Build AI coding-agent configs using FlossWare libraries
-    github.com/FlossWare/personal-agent
+    github.com/FlossWare/coding-agent-ai
 
     Theme: dark  (press 't' to change, Enter to start)
 ```

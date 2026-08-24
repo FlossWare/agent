@@ -1,6 +1,6 @@
 # Security model
 
-personal-agent treats the coding **worker** as untrusted relative to the host.
+`coding-agent-ai` treats the coding **worker** as untrusted relative to the host.
 Security is enforced by deterministic policy layers, not by prompting the model.
 
 ## Trust boundaries
@@ -33,10 +33,15 @@ Every read, write, and delete goes through `resolve_in_workspace()`:
 Command arguments that look like paths are checked the same way when a
 workspace is bound to `CommandPolicy`.
 
+Writes into `.git` metadata, including hooks, are prohibited. This prevents a
+worker from creating executable Git hooks that could run outside the command
+policy during later Git operations.
+
 ## Command policy
 
 `CommandPolicy` is the primary control between LLM-proposed commands and
-execution:
+execution. See [COMMAND-POLICY.md](COMMAND-POLICY.md) for the threat model and
+regression-test matrix.
 
 | Control | Default |
 |---------|---------|
@@ -48,6 +53,10 @@ execution:
 
 Policy violations return a failed `CommandResult` with
 `Blocked by security policy` and are hard-gate failures.
+
+The command policy is intentionally capability-oriented. Enabling network or
+shell execution is an explicit policy decision and must not be inferred from
+model output.
 
 ## Credential classes
 
@@ -63,6 +72,12 @@ Policy violations return a failed `CommandResult` with
 `sanitize_worker_environ()` builds the subprocess environment. Provider keys
 remain available only to the router in the parent process for LLM calls.
 
+The security invariant is stronger than "the worker should not normally see a
+secret": configured credentials must not be available through the worker's
+environment, repository mounts, command output, generated files, diffs, logs,
+feedback, or arbiter input. Tests should treat attempted credential
+exfiltration as an adversarial case.
+
 ### Production recommendations
 
 1. Inject provider keys via OS keychain or a secret manager into the **parent**
@@ -70,6 +85,8 @@ remain available only to the router in the parent process for LLM calls.
 2. Prefer short-lived tokens where the provider supports them.
 3. Run the agent under a least-privilege OS user with no broad cloud roles.
 4. Do not mount host SSH agent sockets into worker environments.
+5. Treat model/provider choice as a routing and policy concern; this project is
+   provider-agnostic and does not require free-only models.
 
 ## Hard verification gates
 
@@ -107,6 +124,9 @@ from personal_agent.security import SecretRedactor
 redactor = SecretRedactor(enabled=False)  # diagnostics only
 ```
 
+The `personal_agent` import is currently retained as a compatibility API while
+the distribution/repository identity is `coding-agent-ai`.
+
 ## Testing
 
 ```bash
@@ -115,3 +135,5 @@ pytest tests/test_security.py tests/test_verification.py -v
 
 Adversarial cases include path traversal, symlink escape, shell metacharacters,
 network tools, credential env leakage, and redaction of representative secrets.
+The command-policy threat model in [COMMAND-POLICY.md](COMMAND-POLICY.md) is the
+minimum regression matrix for security-sensitive command handling.

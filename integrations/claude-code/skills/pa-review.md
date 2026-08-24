@@ -1,13 +1,13 @@
 ---
 name: pa-review
-description: Run personal-agent arbiter review on current changes
+description: Run coding-agent-ai arbiter review on current changes
 ---
 
-Run an independent AI review of the current changes using personal-agent.
+Run an independent AI review of the current changes using coding-agent-ai.
 
 Steps:
 1. Get the current diff: `git diff`
-2. Run personal-agent in investigation mode on the diff:
+2. Run coding-agent-ai in investigation mode on the diff:
    ```bash
    pa --investigate "Review these changes for correctness, security issues, and test coverage. Focus on: logic bugs, missing error handling, security vulnerabilities, and incomplete implementations." --repo . --json
    ```

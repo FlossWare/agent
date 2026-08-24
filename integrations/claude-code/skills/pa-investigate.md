@@ -1,9 +1,9 @@
 ---
 name: pa-investigate
-description: Investigate codebase using personal-agent without making changes
+description: Investigate codebase using coding-agent-ai without making changes
 ---
 
-Use personal-agent to investigate the codebase without making changes.
+Use coding-agent-ai to investigate the codebase without making changes.
 
 When the user asks a question about the codebase:
 1. Run investigation:

@@ -1,8 +1,8 @@
-# personal-agent
+# coding-agent-ai
 
-Personal AI coding-agent stack that composes [FlossWare](https://github.com/FlossWare) capabilities into a worker/arbiter loop for real software-engineering workflows.
+FlossWare coding-agent execution/orchestration stack that composes FlossWare capabilities into a worker/arbiter loop for real software-engineering workflows.
 
-**Free models only.** Uses Groq, Cerebras, OpenRouter, Gemini, Cohere, and HuggingFace — no paid API keys required.
+**Provider-agnostic.** Model selection and routing are delegated to FlossWare's model-routing layer, so deployments can use free, paid, local, or enterprise-approved providers according to their configured policy and credentials.
 
 ## How It Works
 
@@ -20,14 +20,14 @@ Task → (isolated worktree) → Worker → Tests → Hard gates → Arbiter →
 ## Install
 
 ```bash
-pip install git+https://github.com/FlossWare/personal-agent.git
+pip install git+https://github.com/FlossWare/coding-agent-ai.git
 ```
 
 Or for development:
 
 ```bash
-git clone https://github.com/FlossWare/personal-agent.git
-cd personal-agent
+git clone https://github.com/FlossWare/coding-agent-ai.git
+cd coding-agent-ai
 pip install -e ".[dev]"
 ```
 
@@ -65,7 +65,11 @@ async def main():
 asyncio.run(main())
 ```
 
-## API Keys
+> **Compatibility note:** the distribution/repository is `coding-agent-ai`; the Python import package remains `personal_agent` for API compatibility. A future major release may provide a `coding_agent_ai` import with a compatibility shim.
+
+## Provider Credentials
+
+The following environment variables are supported by the current provider/router integrations. They are examples of provider credentials, not a restriction to free providers:
 
 | Provider | Environment Variable |
 |----------|---------------------|

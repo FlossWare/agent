@@ -1,7 +1,7 @@
-# Personal Agent Integration for Cursor
+# Coding Agent Integration for Cursor
 
 ## Code Review
-Before committing changes, run personal-agent for an independent review:
+Before committing changes, run coding-agent-ai for an independent review:
 ```bash
 pa --investigate "Review changes for correctness and security" --repo .
 ```

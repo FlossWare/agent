@@ -1,6 +1,6 @@
 # Agent Integrations
 
-Ready-to-use configurations for integrating [personal-agent](https://github.com/FlossWare/personal-agent) with popular AI coding agents.
+Ready-to-use configurations for integrating [coding-agent-ai](https://github.com/FlossWare/coding-agent-ai) with popular AI coding agents.
 
 ## Supported Agents
 
@@ -41,25 +41,25 @@ cp integrations/opencode/AGENTS.md /path/to/project/AGENTS.md
 cp integrations/opencode/.opencode.yaml /path/to/project/.opencode.yaml
 ```
 
-Ask OpenCode: "Use personal-agent to fix the bug."
+Ask OpenCode: "Use coding-agent-ai to fix the bug."
 
 ## Prerequisites
 
 All integrations require:
 
-1. **personal-agent installed:**
+1. **coding-agent-ai installed:**
    ```bash
-   pip install git+https://github.com/FlossWare/personal-agent.git
+   pip install git+https://github.com/FlossWare/coding-agent-ai.git
    ```
 
-2. **At least one free-tier provider API key:**
+2. **At least one configured provider credential:**
    ```bash
-   export COHERE_API_KEY="your-key"    # Recommended — most reliable
-   export GROQ_API_KEY="your-key"      # Fast inference
+   export COHERE_API_KEY="your-key"
+   export GROQ_API_KEY="your-key"
    export OPENROUTER_API_KEY="your-key"
    ```
 
-   All listed providers offer free-tier access — no paid API keys required. Set multiple keys for automatic failover between providers.
+   Provider availability, model selection, cost, and failover are controlled by the configured FlossWare routing/policy layer. Use whichever providers are approved for your environment, including free-tier, paid, local, or enterprise-approved providers.
 
 ## Common Commands
 

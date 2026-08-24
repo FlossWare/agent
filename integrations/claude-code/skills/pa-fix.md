@@ -1,9 +1,9 @@
 ---
 name: pa-fix
-description: Use personal-agent worker/arbiter loop to fix an issue
+description: Use coding-agent-ai worker/arbiter loop to fix an issue
 ---
 
-Use the full personal-agent worker/arbiter loop to fix an issue.
+Use the full coding-agent-ai worker/arbiter loop to fix an issue.
 
 When the user provides a task description:
 1. Run the full loop:

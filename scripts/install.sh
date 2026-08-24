@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
-# Install personal-agent and configure it for your coding agent.
+# Install coding-agent-ai and configure it for your coding agent.
 #
 # Usage:
-#   curl -sSL https://raw.githubusercontent.com/FlossWare/personal-agent/main/scripts/install.sh | bash
+#   curl -sSL https://raw.githubusercontent.com/FlossWare/coding-agent-ai/main/scripts/install.sh | bash
 #   # or
 #   ./scripts/install.sh [--agent claude|cursor|opencode|all] [--repo /path/to/project]
 #
 # What it does:
-#   1. Installs personal-agent via pip
+#   1. Installs coding-agent-ai via pip
 #   2. Copies integration files for your chosen agent into your project
 #   3. Verifies API keys are set
 
@@ -15,7 +15,7 @@ set -euo pipefail
 
 AGENT="all"
 REPO_DIR="."
-PA_REPO="https://github.com/FlossWare/personal-agent.git"
+PA_REPO="https://github.com/FlossWare/coding-agent-ai.git"
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -40,13 +40,13 @@ if [[ ! -d "$REPO_DIR/.git" ]]; then
     exit 1
 fi
 
-echo "=== personal-agent installer ==="
+echo "=== coding-agent-ai installer ==="
 echo "Agent:   $AGENT"
 echo "Project: $REPO_DIR"
 echo ""
 
-# Step 1: Install personal-agent
-echo "[1/3] Installing personal-agent..."
+# Step 1: Install coding-agent-ai
+echo "[1/3] Installing coding-agent-ai..."
 PIP_CMD=""
 if command -v pip &>/dev/null; then
     PIP_CMD="pip"
@@ -57,7 +57,8 @@ else
     exit 1
 fi
 
-if ! $PIP_CMD install --quiet "git+${PA_REPO}" 2>&1; then
+# git+ installs require building from source; --only-binary is not applicable.
+if ! $PIP_CMD install --quiet "git+${PA_REPO}" 2>&1; then # NOSONAR
     echo "ERROR: pip install failed. Check Python 3.11+ and network connectivity."
     exit 1
 fi
