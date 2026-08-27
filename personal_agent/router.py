@@ -88,9 +88,12 @@ class FabricRouter:
 
 
 class SimpleFreeRouter(FabricRouter):
-    """Backward-compatible constructor accepting old provider dictionaries."""
+    """Backward-compatible router accepting old provider dictionaries or a pool."""
 
-    def __init__(self, providers: list[dict[str, Any]]) -> None:
+    def __init__(self, providers: list[dict[str, Any]] | WorkerPool) -> None:
+        if isinstance(providers, WorkerPool):
+            super().__init__(providers)
+            return
         workers: list[ModelWorker] = []
         for item in providers:
             provider = Provider(item["name"], item["url"])
@@ -115,7 +118,7 @@ def create_free_router(*, extra_providers: dict[str, str] | None = None) -> Fabr
     config = _legacy_worker_config(extra_providers)
     if not config:
         raise RuntimeError("No API keys found. Configure at least one supported provider credential.")
-    return FabricRouter(workers_from_config(config))
+    return SimpleFreeRouter(workers_from_config(config))
 
 
 def _legacy_worker_config(extra_providers: dict[str, str] | None = None) -> list[dict[str, Any]]:
