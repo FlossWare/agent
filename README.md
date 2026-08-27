@@ -2,105 +2,102 @@
 
 FlossWare coding-agent execution/orchestration stack built around a provider-neutral **worker / arbiter** architecture.
 
+## Personal MVP
+
+The current practical profile is **FlossWare Personal**:
+
+- free-tier APIs and local models only
+- personal credentials isolated under `~/.flossware/ai/personal.env`
+- existing `~/.flossware/ai/venv` is reused when present
+- no Red Hat credentials or configuration are sourced
+- deterministic worker -> hard gates -> independent arbiter loop
+- GitHub integration through the user's authenticated `gh` CLI
+- Crush integration through generated `~/.config/crush/crushrc`
+
+Thompson Sampling, genetic algorithms, and adaptive model scaling are intentionally deferred from this MVP.
+
+## Install
+
+The standalone bootstrap is intentionally independent of `coding-agent-setup`:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/FlossWare/coding-agent-ai/main/install.sh | bash
+```
+
+Then add only personal/free credentials to `~/.flossware/ai/personal.env` and start a new shell (or source the file).
+
+```bash
+flossware-ai models
+flossware-ai accounts
+flossware-ai crush-config --write
+```
+
+The installer reuses `~/.flossware/ai/venv` and `~/.flossware/ai` rather than creating another FlossWare installation tree.
+
 ## Core model
 
 A **worker is any capable unit of work**. It is not synonymous with an LLM. A worker may be deterministic code, a CLI, MCP capability, another agent, a local model, a hosted model, a test runner, or a composite worker.
 
 ```text
-Work
-  -> capability matching
-  -> Workers
+Task / PR
+   -> workers
+       -> local model / free API
        -> deterministic tool
-       -> CLI
-       -> MCP capability
-       -> agent
-       -> model
-       -> composite worker
-  -> Arbiter
-       -> collect evidence
-       -> detect disagreement
-       -> synthesize
-  -> Result
+       -> GitHub / MCP capability
+   -> hard gates
+   -> independent arbiter
+   -> accept / reject / feedback
 ```
 
-The arbiter is the synthesis boundary. Model-based consensus is one possible synthesis implementation, not a prerequisite for the architecture.
-
-## Coding-agent workflow
-
-The repository also provides a concrete software-engineering worker/arbiter loop:
-
-```text
-Task -> isolated worktree -> Worker -> Tests -> Hard gates -> Arbiter -> Accept/Reject -> Apply
-```
-
-1. Each run can execute in a disposable git worktree.
-2. A coding worker investigates, plans, changes files, and runs tests.
-3. Deterministic hard gates can reject failures regardless of model output.
-4. An independent arbiter reviews the proposed result.
-5. Rejection feeds actionable feedback back to the worker for another iteration.
-6. Accepted changes can be applied to the primary tree.
-
-## Provider and pricing neutrality
-
-Provider, model, vendor, hosting topology, authentication mechanism, and pricing are **routing and policy inputs**, not architectural defaults. The runtime does not require or prefer a particular provider or pricing tier.
-
-See `personal_agent/capability.py` for the generic capability-worker contract and `personal_agent/arbiter.py` for the coding-review arbiter.
-
-## Install on Fedora
-
-For the current dogfood milestone, use `FlossWare/coding-agent-setup` as the installation entry point. Fedora is the Tier-1 supported installation target.
+## Coding workflow
 
 ```bash
-git clone https://github.com/FlossWare/coding-agent-setup.git
-cd coding-agent-setup
-./scripts/install.sh
+cd /path/to/repository
+flossware-ai run "Fix the failing authentication test" --repo . --commands pytest --max-iter 3
 ```
 
-## Quick start
+The worker operates in an isolated worktree when possible. Tests and security gates can reject a result independently of model output. The arbiter reviews the resulting diff and feeds actionable rejection feedback back to the worker.
 
-After installation and explicit authentication/configuration:
+## GitHub workflow
+
+Existing `gh` authentication is reused. No GitHub token is copied into FlossWare configuration.
 
 ```bash
-cd /path/to/your/git/repository
-source ~/.flossware/venv/bin/activate
-pa --investigate "What are the main components?" --repo .
-pa "Fix the failing test in test_auth.py" --repo . --commands pytest --max-iter 3
+flossware-ai github auth
+flossware-ai github view 123 --repo FlossWare/coding-agent-ai
+flossware-ai github diff 123 --repo FlossWare/coding-agent-ai
+flossware-ai github review 123 --repo FlossWare/coding-agent-ai
+flossware-ai github review 123 --repo FlossWare/coding-agent-ai --post
 ```
 
-Do not use `--commit` on the first dogfood run. Review the generated diff and verification results first.
+A PR review runs three focused workers (correctness, security, and tests), followed by an independent arbiter that synthesizes their evidence.
 
-## Generic capability API
+## Crush
 
-```python
-import asyncio
-from personal_agent import CapabilityArbiter, FunctionWorker, Work
+Crush is the interactive coding-agent UI. `coding-agent-ai` supplies the Personal free/local provider policy and worker/arbiter/GitHub capabilities.
 
-async def main():
-    workers = [
-        FunctionWorker("static-check", {"inspect"}, lambda work: "static evidence"),
-        FunctionWorker("tests", {"inspect", "verify"}, lambda work: "tests evidence"),
-    ]
-    result = await CapabilityArbiter(workers).execute(
-        Work("inspect repository", frozenset({"inspect"}))
-    )
-    print(result.conclusion)
-
-asyncio.run(main())
+```bash
+flossware-ai crush-config --write
+crush
 ```
 
-This API deliberately has no provider-specific dependency. A model-backed worker can be added without changing the work or arbiter contracts.
+Crush's current `crushrc` format is Bash and supports local Ollama plus custom OpenAI-compatible providers, which makes it a clean client for this profile.
 
-## Credentials
+## Provider policy
 
-Credentials belong to the authentication boundary and must not be embedded in source, generated configuration, images, or Git history. Existing authenticated CLI/session capabilities SHOULD be reused where supported rather than requiring duplicate credentials.
+The Personal router only discovers:
 
-## Safety
+- Ollama/local models
+- Gemini free tier
+- Groq free tier
+- Cerebras free tier
+- OpenRouter free-model endpoint
+- Hugging Face free inference where available
+- Z.ai free-tier models where available
 
-- command policy and filesystem confinement
-- credential isolation and secret redaction
-- deterministic verification gates
-- disposable worktrees
-- independent arbitration
+Provider free tiers can change. A provider being listed here means the Personal profile is designed for its free tier, not that a provider guarantees unlimited $0 usage.
+
+Paid Anthropic/OpenAI/RH providers are not configured by this profile.
 
 ## Development
 
