@@ -25,6 +25,68 @@ Work
 
 The arbiter is the synthesis boundary. Model-based consensus is one possible synthesis implementation, not a prerequisite for the architecture.
 
+## Model fabric
+
+Model execution uses four independent concepts:
+
+```text
+Provider + Account + Model = Worker
+                              |
+                         Worker Pool
+                              |
+                           Arbiter
+```
+
+- **Provider** is an API/runtime transport.
+- **Account** is a credential identity within a provider.
+- **Model** is independent of provider and account.
+- **Worker** is one concrete provider/account/model route.
+
+This means one exhausted OpenRouter account does not disable another OpenRouter
+account, a local model, or another provider. Workers record structured failure
+states and honor provider quota reset times.
+
+Explicit workers can be configured with `FLOSSWARE_WORKERS_CONFIG`:
+
+```json
+[
+  {
+    "id": "openrouter/flossware/qwen",
+    "provider": "openrouter",
+    "account": "flossware",
+    "model": "qwen/qwen3-coder",
+    "endpoint": "https://openrouter.ai/api/v1/chat/completions",
+    "api_key_env": "OPENROUTER_FLOSSWARE_KEY",
+    "capabilities": ["chat", "code"]
+  },
+  {
+    "id": "openrouter/ncrr/qwen",
+    "provider": "openrouter",
+    "account": "ncrr",
+    "model": "qwen/qwen3-coder",
+    "endpoint": "https://openrouter.ai/api/v1/chat/completions",
+    "api_key_env": "OPENROUTER_NCRR_KEY",
+    "capabilities": ["chat", "code"]
+  },
+  {
+    "id": "local/qwen",
+    "provider": "local",
+    "account": "local",
+    "model": "qwen3-coder",
+    "endpoint": "http://127.0.0.1:8000/v1/chat/completions",
+    "api_key_env": "LOCAL_API_KEY",
+    "capabilities": ["chat", "code"]
+  }
+]
+```
+
+Credentials are referenced by environment variable and never stored in the
+configuration itself. An absent worker configuration produces zero explicit
+workers. Existing provider-specific environment variables remain supported as
+a compatibility path.
+
+See `docs/adr/0001-provider-account-model-worker-fabric.md` for the architectural decision.
+
 ## Coding-agent workflow
 
 The repository also provides a concrete software-engineering worker/arbiter loop:
