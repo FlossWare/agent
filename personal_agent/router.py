@@ -11,8 +11,7 @@ import os
 from dataclasses import dataclass, field as dc_field
 from typing import Any
 
-from personal_agent.model_fabric import Arbiter as WorkerArbiter
-from personal_agent.model_fabric import Account, Model, ModelWorker, Provider, WorkerPool, load_worker_config, workers_from_config
+from personal_agent.model_fabric import Account, Arbiter as WorkerArbiter, Model, ModelWorker, Provider, WorkerPool, load_worker_config, workers_from_config
 
 
 @dataclass
@@ -61,7 +60,7 @@ class FabricRouter:
     def __init__(self, pool: WorkerPool) -> None:
         self.pool = pool
         self.arbiter = WorkerArbiter(pool)
-        self._providers = pool.workers  # compatibility view for older callers
+        self._providers = pool.workers
 
     async def initialize(self) -> None:
         return None
@@ -70,17 +69,13 @@ class FabricRouter:
                    temperature: float = 0.7, max_tokens: int | None = None, **kwargs: Any) -> _Response:
         selected_model = None if model in (None, "flossware") else model
         try:
-            result = await self.arbiter.execute(
-                messages, model=selected_model, temperature=temperature,
-                max_tokens=max_tokens, **kwargs,
-            )
+            result = await self.arbiter.execute(messages, model=selected_model,
+                                                temperature=temperature, max_tokens=max_tokens, **kwargs)
         except RuntimeError as exc:
             raise RuntimeError(str(exc).replace("No worker succeeded", "All providers failed")) from exc
-        return _Response(
-            content=result.content, model=result.model, provider=result.provider,
-            account=result.account, usage=result.usage, latency_ms=result.latency_ms,
-            cost_usd=result.cost_usd,
-        )
+        return _Response(content=result.content, model=result.model, provider=result.provider,
+                         account=result.account, usage=result.usage, latency_ms=result.latency_ms,
+                         cost_usd=result.cost_usd)
 
     async def list_models(self) -> list[dict[str, str]]:
         seen: set[str] = set()
@@ -93,29 +88,16 @@ class FabricRouter:
 
 
 class SimpleFreeRouter(FabricRouter):
-    """Backward-compatible constructor accepting the old provider dictionaries."""
+    """Backward-compatible constructor accepting old provider dictionaries."""
 
     def __init__(self, providers: list[dict[str, Any]]) -> None:
         workers: list[ModelWorker] = []
         for item in providers:
             provider = Provider(item["name"], item["url"])
-            account = Account(item["name"] + "/default", item["name"], "__legacy_router_key__")
+            account = Account(item["name"] + "/default", item["name"], "__unused__", item.get("key", ""))
             model = Model(item["model"], frozenset({"chat"}))
-            worker = ModelWorker(item["name"], provider, account, model)
-            worker._legacy_key = item.get("key", "")  # test/compatibility transport credential
-            workers.append(worker)
+            workers.append(ModelWorker(item["name"], provider, account, model))
         super().__init__(WorkerPool(workers))
-
-    async def chat(self, messages: list[dict[str, str]], **kwargs: Any) -> _Response:
-        # Legacy providers carry their key in-memory. New configured workers
-        # resolve credentials only from environment variables.
-        import os as _os
-        for worker in self.pool.workers:
-            key = getattr(worker, "_legacy_key", "")
-            if key:
-                worker.account = Account(worker.account.id, worker.account.provider_id, "__legacy_router_key__")
-                _os.environ["__legacy_router_key__"] = key
-        return await super().chat(messages, **kwargs)
 
 
 SimpleRouter = SimpleFreeRouter
@@ -139,21 +121,16 @@ def create_free_router(*, extra_providers: dict[str, str] | None = None) -> Fabr
 def _legacy_worker_config(extra_providers: dict[str, str] | None = None) -> list[dict[str, Any]]:
     config: list[dict[str, Any]] = []
     for name, cfg in FREE_PROVIDERS.items():
-        if not os.environ.get(cfg["env"], "") or not cfg["model"]:
-            continue
-        config.append({
-            "id": f"{name}/default/{cfg['model']}", "provider": name,
-            "account": "default", "model": cfg["model"], "endpoint": _endpoint(name),
-            "api_key_env": cfg["env"], "capabilities": ["chat"],
-        })
+        if os.environ.get(cfg["env"], "") and cfg["model"]:
+            config.append({"id": f"{name}/default/{cfg['model']}", "provider": name,
+                           "account": "default", "model": cfg["model"], "endpoint": _endpoint(name),
+                           "api_key_env": cfg["env"], "capabilities": ["chat"]})
     if extra_providers:
         for name, env_var in extra_providers.items():
             if os.environ.get(env_var, ""):
-                config.append({
-                    "id": f"{name}/default/{name}", "provider": name, "account": "default",
-                    "model": name, "endpoint": _endpoint(name) if name in FREE_PROVIDERS else name,
-                    "api_key_env": env_var, "capabilities": ["chat"],
-                })
+                config.append({"id": f"{name}/default/{name}", "provider": name, "account": "default",
+                               "model": name, "endpoint": _endpoint(name) if name in FREE_PROVIDERS else name,
+                               "api_key_env": env_var, "capabilities": ["chat"]})
     return config
 
 
