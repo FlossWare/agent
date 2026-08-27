@@ -1,9 +1,4 @@
-"""Provider/account/model/worker fabric used by the model gateway.
-
-The fabric deliberately separates transport providers, credentials, models, and
-concrete workers.  A quota failure therefore disables only the affected worker
-until its reset time rather than poisoning an entire provider.
-"""
+"""Provider/account/model/worker fabric used by the model gateway."""
 
 from __future__ import annotations
 
@@ -45,9 +40,10 @@ class Account:
     id: str
     provider_id: str
     api_key_env: str
+    api_key_override: str | None = None
 
     def api_key(self) -> str:
-        return os.environ.get(self.api_key_env, "")
+        return self.api_key_override if self.api_key_override is not None else os.environ.get(self.api_key_env, "")
 
 
 @dataclass(frozen=True)
@@ -86,17 +82,9 @@ class WorkerProtocol(Protocol):
 class ModelWorker:
     """Concrete route: provider + account + model."""
 
-    def __init__(
-        self,
-        worker_id: str,
-        provider: Provider,
-        account: Account,
-        model: Model,
-        *,
-        enabled: bool = True,
-        timeout: float = 120.0,
-        headers: dict[str, str] | None = None,
-    ) -> None:
+    def __init__(self, worker_id: str, provider: Provider, account: Account, model: Model,
+                 *, enabled: bool = True, timeout: float = 120.0,
+                 headers: dict[str, str] | None = None) -> None:
         self.id = worker_id
         self.provider = provider
         self.account = account
@@ -113,16 +101,15 @@ class ModelWorker:
     def available(self) -> bool:
         if not self.enabled or not self.account.api_key():
             return False
-        if time.time() < self._unavailable_until:
-            return False
-        return True
+        return time.time() >= self._unavailable_until
 
     @property
     def unavailable_until(self) -> float:
         return self._unavailable_until
 
     def mark_unavailable(self, until: float | None = None, error: str = "") -> None:
-        self._unavailable_until = max(time.time(), until or time.time())
+        target = until if until is not None else time.time() + 60.0
+        self._unavailable_until = max(time.time() + 0.001, target)
         self._last_error = error
 
     def mark_available(self) -> None:
@@ -133,30 +120,20 @@ class ModelWorker:
         if not self.available():
             return WorkerResult(
                 status=WorkerStatus.QUOTA_EXHAUSTED,
-                provider=self.provider.id,
-                account=self.account.id,
-                model=self.model.id,
-                error=self._last_error or "worker unavailable",
-                quota_reset=self._unavailable_until or None,
+                provider=self.provider.id, account=self.account.id, model=self.model.id,
+                error=self._last_error or "worker unavailable", quota_reset=self._unavailable_until or None,
             )
         return await asyncio.to_thread(self._execute_sync, messages, kwargs)
 
     def _execute_sync(self, messages: list[dict[str, str]], kwargs: dict[str, Any]) -> WorkerResult:
-        body: dict[str, Any] = {
-            "model": self.model.id,
-            "messages": messages,
-        }
+        body: dict[str, Any] = {"model": self.model.id, "messages": messages}
         for key in ("temperature", "max_tokens", "stream"):
             if key in kwargs and kwargs[key] is not None:
                 body[key] = kwargs[key]
-
         headers = {"Content-Type": "application/json", **self.headers}
         headers["Authorization"] = f"Bearer {self.account.api_key()}"
         request = urllib.request.Request(
-            self.provider.endpoint,
-            data=json.dumps(body).encode("utf-8"),
-            headers=headers,
-            method="POST",
+            self.provider.endpoint, data=json.dumps(body).encode("utf-8"), headers=headers, method="POST"
         )
         started = time.monotonic()
         try:
@@ -164,72 +141,39 @@ class ModelWorker:
                 payload = json.loads(response.read().decode("utf-8"))
             elapsed = (time.monotonic() - started) * 1000
             choice = payload.get("choices", [{}])[0]
-            message = choice.get("message", {})
-            content = message.get("content", "")
+            content = choice.get("message", {}).get("content", "")
             return WorkerResult(
-                status=WorkerStatus.SUCCESS,
-                content=content,
-                model=payload.get("model", self.model.id),
-                provider=self.provider.id,
-                account=self.account.id,
-                usage=payload.get("usage", {}) or {},
-                latency_ms=elapsed,
+                status=WorkerStatus.SUCCESS, content=content,
+                model=payload.get("model", self.model.id), provider=self.provider.id,
+                account=self.account.id, usage=payload.get("usage", {}) or {}, latency_ms=elapsed,
             )
         except urllib.error.HTTPError as exc:
             elapsed = (time.monotonic() - started) * 1000
             raw = exc.read().decode("utf-8", errors="replace")
             status, retry_after, quota_reset = self._classify_http_error(exc, raw)
             if status in (WorkerStatus.RATE_LIMITED, WorkerStatus.QUOTA_EXHAUSTED):
-                until = quota_reset or (time.time() + (retry_after or 60.0))
+                until = quota_reset if quota_reset is not None else time.time() + max(retry_after or 60.0, 1.0)
                 self.mark_unavailable(until, raw)
             return WorkerResult(
-                status=status,
-                provider=self.provider.id,
-                account=self.account.id,
-                model=self.model.id,
-                latency_ms=elapsed,
-                error=raw,
-                retry_after=retry_after,
-                quota_reset=quota_reset,
+                status=status, provider=self.provider.id, account=self.account.id, model=self.model.id,
+                latency_ms=elapsed, error=raw, retry_after=retry_after, quota_reset=quota_reset,
             )
         except urllib.error.URLError as exc:
-            return WorkerResult(
-                status=WorkerStatus.NETWORK_ERROR,
-                provider=self.provider.id,
-                account=self.account.id,
-                model=self.model.id,
-                error=str(exc),
-            )
+            return WorkerResult(status=WorkerStatus.NETWORK_ERROR, provider=self.provider.id,
+                                 account=self.account.id, model=self.model.id, error=str(exc))
         except TimeoutError as exc:
-            return WorkerResult(
-                status=WorkerStatus.TIMEOUT,
-                provider=self.provider.id,
-                account=self.account.id,
-                model=self.model.id,
-                error=str(exc),
-            )
+            return WorkerResult(status=WorkerStatus.TIMEOUT, provider=self.provider.id,
+                                 account=self.account.id, model=self.model.id, error=str(exc))
         except (KeyError, ValueError, json.JSONDecodeError) as exc:
-            return WorkerResult(
-                status=WorkerStatus.FAILED,
-                provider=self.provider.id,
-                account=self.account.id,
-                model=self.model.id,
-                error=str(exc),
-            )
-        except Exception as exc:  # pragma: no cover - defensive boundary
+            return WorkerResult(status=WorkerStatus.FAILED, provider=self.provider.id,
+                                 account=self.account.id, model=self.model.id, error=str(exc))
+        except Exception as exc:  # pragma: no cover
             logger.debug("worker %s failed", self.id, exc_info=True)
-            return WorkerResult(
-                status=WorkerStatus.FAILED,
-                provider=self.provider.id,
-                account=self.account.id,
-                model=self.model.id,
-                error=str(exc),
-            )
+            return WorkerResult(status=WorkerStatus.FAILED, provider=self.provider.id,
+                                 account=self.account.id, model=self.model.id, error=str(exc))
 
     @staticmethod
-    def _classify_http_error(
-        exc: urllib.error.HTTPError, raw: str
-    ) -> tuple[WorkerStatus, float | None, float | None]:
+    def _classify_http_error(exc: urllib.error.HTTPError, raw: str) -> tuple[WorkerStatus, float | None, float | None]:
         retry_after: float | None = None
         quota_reset: float | None = None
         header = exc.headers.get("Retry-After")
@@ -247,9 +191,8 @@ class ModelWorker:
                 pass
         lowered = raw.lower()
         if exc.code == 429:
-            if "free-models-per-day" in lowered or "quota" in lowered or "daily" in lowered:
-                return WorkerStatus.QUOTA_EXHAUSTED, retry_after, quota_reset
-            return WorkerStatus.RATE_LIMITED, retry_after, quota_reset
+            status = WorkerStatus.QUOTA_EXHAUSTED if any(x in lowered for x in ("free-models-per-day", "quota", "daily")) else WorkerStatus.RATE_LIMITED
+            return status, retry_after, quota_reset
         if exc.code in (401, 403):
             return WorkerStatus.AUTH_FAILED, retry_after, quota_reset
         if exc.code in (400, 422):
@@ -266,38 +209,24 @@ class WorkerPool:
     def add(self, worker: ModelWorker) -> None:
         self.workers.append(worker)
 
-    def eligible(
-        self,
-        *,
-        model: str | None = None,
-        capabilities: frozenset[str] = frozenset(),
-    ) -> list[ModelWorker]:
-        return [
-            worker for worker in self.workers
-            if worker.available()
-            and (model is None or worker.model.id == model)
-            and capabilities.issubset(worker.capabilities())
-        ]
+    def eligible(self, *, model: str | None = None,
+                 capabilities: frozenset[str] = frozenset()) -> list[ModelWorker]:
+        return [w for w in self.workers if w.available()
+                and (model is None or w.model.id == model)
+                and capabilities.issubset(w.capabilities())]
 
 
 class Arbiter:
-    """Selects workers and fails over across independent routes."""
+    """Select workers and fail over across independent routes."""
 
     def __init__(self, pool: WorkerPool) -> None:
         self.pool = pool
 
-    async def execute(
-        self,
-        messages: list[dict[str, str]],
-        *,
-        model: str | None = None,
-        capabilities: frozenset[str] = frozenset(),
-        **kwargs: Any,
-    ) -> WorkerResult:
+    async def execute(self, messages: list[dict[str, str]], *, model: str | None = None,
+                      capabilities: frozenset[str] = frozenset(), **kwargs: Any) -> WorkerResult:
         candidates = self.pool.eligible(model=model, capabilities=capabilities)
         if not candidates:
             raise RuntimeError("No available workers")
-
         errors: list[str] = []
         for worker in candidates:
             result = await worker.execute(messages, **kwargs)
@@ -308,34 +237,25 @@ class Arbiter:
 
 
 def workers_from_config(config: list[dict[str, Any]]) -> WorkerPool:
-    """Build a worker pool from explicit configuration.
-
-    Each item may specify provider, account, model, and api_key_env.  Secrets
-    themselves never belong in the configuration object.
-    """
     providers: dict[str, Provider] = {}
     accounts: dict[tuple[str, str], Account] = {}
     models: dict[str, Model] = {}
     pool = WorkerPool()
-
     for item in config:
         if not item.get("enabled", True):
             continue
         provider_id = item["provider"]
         account_id = item.get("account", "default")
         model_id = item["model"]
-        endpoint = item["endpoint"]
-        provider = providers.setdefault(provider_id, Provider(provider_id, endpoint, item.get("kind", "openai-compatible")))
+        provider = providers.setdefault(provider_id, Provider(provider_id, item["endpoint"], item.get("kind", "openai-compatible")))
         account_key = (provider_id, account_id)
         account = accounts.setdefault(account_key, Account(account_id, provider_id, item["api_key_env"]))
-        capabilities = frozenset(item.get("capabilities", ["chat"]))
-        model = models.setdefault(model_id, Model(model_id, capabilities, item.get("context_length")))
+        model = models.setdefault(model_id, Model(model_id, frozenset(item.get("capabilities", ["chat"])), item.get("context_length")))
         pool.add(ModelWorker(item.get("id", f"{provider_id}/{account_id}/{model_id}"), provider, account, model, timeout=float(item.get("timeout", 120))))
     return pool
 
 
 def load_worker_config(env_var: str = "FLOSSWARE_WORKERS_CONFIG") -> list[dict[str, Any]]:
-    """Load explicit worker JSON. An absent variable means zero workers."""
     value = os.environ.get(env_var, "").strip()
     if not value:
         return []
