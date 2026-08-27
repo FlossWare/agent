@@ -1,8 +1,8 @@
 """Provider/account/model/worker router.
 
 The public ``chat`` API remains compatible with the coding agent while routing
-through independent workers.  Providers and accounts are deliberately
-separate so one exhausted identity does not disable its siblings.
+through independent workers. Providers and accounts are deliberately separate
+so one exhausted identity does not disable its siblings.
 """
 
 from __future__ import annotations
@@ -11,14 +11,8 @@ import os
 from dataclasses import dataclass, field as dc_field
 from typing import Any
 
-from personal_agent.model_fabric import (
-    Arbiter as WorkerArbiter,
-    ModelWorker,
-    WorkerPool,
-    WorkerStatus,
-    load_worker_config,
-    workers_from_config,
-)
+from personal_agent.model_fabric import Arbiter as WorkerArbiter
+from personal_agent.model_fabric import WorkerPool, load_worker_config, workers_from_config
 
 
 @dataclass
@@ -41,12 +35,24 @@ FREE_PROVIDERS = {
     "huggingface": {"env": "HUGGINGFACE_API_KEY", "name": "huggingface", "model": ""},
 }
 
-PROVIDER_CONFIGS = [
-    {**cfg, "url": endpoint}
-    for name, cfg in FREE_PROVIDERS.items()
-    for endpoint in [_endpoint(name)]
-]
-PROVIDER_CONFIGS[4]["is_cohere"] = True
+
+def _endpoint(name: str) -> str:
+    return {
+        "groq": "https://api.groq.com/openai/v1/chat/completions",
+        "cerebras": "https://api.cerebras.ai/v1/chat/completions",
+        "openrouter": "https://openrouter.ai/api/v1/chat/completions",
+        "cohere": "https://api.cohere.com/v2/chat",
+        "gemini": "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions",
+        "huggingface": "https://router.huggingface.co/v1/chat/completions",
+    }[name]
+
+
+PROVIDER_CONFIGS = []
+for _name, _cfg in FREE_PROVIDERS.items():
+    _entry = {**_cfg, "url": _endpoint(_name)}
+    if _name == "cohere":
+        _entry["is_cohere"] = True
+    PROVIDER_CONFIGS.append(_entry)
 
 
 class FabricRouter:
@@ -57,7 +63,6 @@ class FabricRouter:
         self.arbiter = WorkerArbiter(pool)
 
     async def initialize(self) -> None:
-        """Compatibility hook; worker health is checked at selection time."""
         return None
 
     async def chat(
@@ -69,9 +74,12 @@ class FabricRouter:
         max_tokens: int | None = None,
         **kwargs: Any,
     ) -> _Response:
+        # ``flossware`` is the stable logical model name. It means "let the
+        # arbiter choose a configured worker" rather than a literal model ID.
+        selected_model = None if model in (None, "flossware") else model
         result = await self.arbiter.execute(
             messages,
-            model=model,
+            model=selected_model,
             temperature=temperature,
             max_tokens=max_tokens,
             **kwargs,
@@ -96,19 +104,12 @@ class FabricRouter:
         return result
 
 
-# Backward-compatible name used by older callers/tests.
 SimpleFreeRouter = FabricRouter
 SimpleRouter = FabricRouter
 
 
 def create_router(*, max_monthly: float | None = None, extra_providers: dict[str, str] | None = None) -> FabricRouter:
-    """Create a router from explicit worker config, then legacy API keys.
-
-    Explicit ``FLOSSWARE_WORKERS_CONFIG`` takes precedence.  Without it, the
-    existing provider environment variables are converted into one worker per
-    authenticated provider, preserving current installations while enabling
-    multi-account configuration when desired.
-    """
+    """Create a router from explicit worker config or legacy API keys."""
     config = load_worker_config()
     if config:
         return FabricRouter(workers_from_config(config))
@@ -125,27 +126,24 @@ def create_free_router(*, extra_providers: dict[str, str] | None = None) -> Fabr
 def _legacy_worker_config(extra_providers: dict[str, str] | None = None) -> list[dict[str, Any]]:
     config: list[dict[str, Any]] = []
     for name, cfg in FREE_PROVIDERS.items():
-        key = os.environ.get(cfg["env"], "")
-        if not key:
+        if not os.environ.get(cfg["env"], ""):
             continue
-        model = cfg["model"]
-        if not model:
+        if not cfg["model"]:
             continue
         config.append({
-            "id": f"{name}/default/{model}",
+            "id": f"{name}/default/{cfg['model']}",
             "provider": name,
             "account": "default",
-            "model": model,
+            "model": cfg["model"],
             "endpoint": _endpoint(name),
             "api_key_env": cfg["env"],
             "capabilities": ["chat"],
         })
     if extra_providers:
         for name, env_var in extra_providers.items():
-            key = os.environ.get(env_var, "")
-            if key:
+            if os.environ.get(env_var, ""):
                 config.append({
-                    "id": f"{name}/default/default",
+                    "id": f"{name}/default/{name}",
                     "provider": name,
                     "account": "default",
                     "model": name,
@@ -157,21 +155,8 @@ def _legacy_worker_config(extra_providers: dict[str, str] | None = None) -> list
 
 
 def _create_simple_router() -> FabricRouter:
-    """Compatibility factory retained for callers of the previous router."""
     return create_free_router()
 
 
 def _create_model_router_ai(*args: Any, **kwargs: Any) -> Any:
-    """Legacy hook retained for tests/integrations; the fabric is now native."""
     raise ImportError("model-router-ai integration is superseded by the worker fabric")
-
-
-def _endpoint(name: str) -> str:
-    return {
-        "groq": "https://api.groq.com/openai/v1/chat/completions",
-        "cerebras": "https://api.cerebras.ai/v1/chat/completions",
-        "openrouter": "https://openrouter.ai/api/v1/chat/completions",
-        "cohere": "https://api.cohere.com/v2/chat",
-        "gemini": "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions",
-        "huggingface": "https://router.huggingface.co/v1/chat/completions",
-    }[name]
