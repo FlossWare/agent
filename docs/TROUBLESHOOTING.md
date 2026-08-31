@@ -1,6 +1,6 @@
 # Troubleshooting
 
-User-facing guidance for common failures during the v0.1.0 dogfood phase.
+User-facing guidance for common failures during the 0.1 dogfood phase.
 Credentials must never be pasted into issues, logs, or chat.
 
 ## Debug mode
@@ -109,7 +109,7 @@ persistent trace.
 
 ## Related docs
 
-- [SECURITY.md](SECURITY.md) — trust boundaries and credential isolation
-- [COMMAND-POLICY.md](COMMAND-POLICY.md) — command allow/deny policy
-- [SETUP.md](SETUP.md) — installation and environment
-- [MIGRATION.md](MIGRATION.md) — personal-agent → coding-agent-ai rename
+- [SECURITY.md](SECURITY.md) - trust boundaries and credential isolation
+- [COMMAND-POLICY.md](COMMAND-POLICY.md) - command allow/deny policy
+- [SETUP.md](SETUP.md) - installation and environment
+- [MIGRATION.md](MIGRATION.md) - personal-agent → coding-agent-ai rename
