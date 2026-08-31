@@ -69,7 +69,24 @@ pa "Fix the failing test in test_auth.py" --repo . --commands pytest --max-iter 
 
 Do not use `--commit` on the first dogfood run. Review the generated diff and verification results first.
 
-## Generic capability API
+## Usage examples
+
+### CLI
+
+```bash
+# Investigation only (no accept/apply loop)
+pa --investigate "What are the main components?" --repo .
+
+# Coding loop with a deterministic test gate
+pa "Fix the failing test in test_auth.py" --repo . --commands pytest --max-iter 3
+
+# Verbose logging and machine-readable output
+pa -v "Summarize the security model" --repo . --json
+```
+
+Do not use `--commit` on the first dogfood run. Review the generated diff and verification results first.
+
+### Python API — capability workers (provider-neutral)
 
 ```python
 import asyncio
@@ -88,21 +105,55 @@ async def main():
 asyncio.run(main())
 ```
 
-This API deliberately has no provider-specific dependency. A model-backed worker can be added without changing the work or arbiter contracts.
+This API has no provider-specific dependency. A model-backed worker can be added without changing the work or arbiter contracts.
+
+### Python API — coding agent loop
+
+```python
+import asyncio
+from personal_agent import CodingAgent
+from personal_agent.types import Task
+
+async def main():
+    repo = "/path/to/git/repository"
+    agent = CodingAgent(repo, max_iterations=3)
+    task = Task(
+        description="Fix the failing test in test_auth.py",
+        repo_path=repo,
+        commands=["pytest"],
+        max_iterations=3,
+    )
+    result = await agent.run(task)
+    print(result.decision, result.iterations)
+    # Review result.final_diff and result.arbiter_decisions before any commit.
+
+asyncio.run(main())
+```
+
+Configure provider credentials in the parent process via `coding-agent-setup`
+(or OS secret stores). Workers remain credential-free — see
+[docs/SECURITY.md](docs/SECURITY.md). Integration coverage lives under `tests/`
+(`test_agent.py`, `test_security.py`, `test_verification.py`).
 
 ## Credentials
 
-Credentials belong to the authentication boundary and must not be embedded in source, generated configuration, images, or Git history. Existing authenticated CLI/session capabilities SHOULD be reused where supported rather than requiring duplicate credentials.
+Credentials belong to the authentication boundary and must not be embedded in
+source, generated configuration, images, or Git history. Existing authenticated
+CLI/session capabilities SHOULD be reused where supported rather than requiring
+duplicate credentials.
+
+Threat model, credential classes, worktree isolation, and redaction:
+**[docs/SECURITY.md](docs/SECURITY.md)**.
 
 ## Safety
 
-- command policy and filesystem confinement
-- credential isolation and secret redaction
+- command policy and filesystem confinement ([docs/COMMAND-POLICY.md](docs/COMMAND-POLICY.md))
+- credential isolation and secret redaction ([docs/SECURITY.md](docs/SECURITY.md))
 - deterministic verification gates
 - disposable worktrees
 - independent arbitration
 
-## Development
+## Testing
 
 ```bash
 python3 -m venv .venv
@@ -110,6 +161,27 @@ source .venv/bin/activate
 pip install -e '.[dev]'
 pytest -q
 ```
+
+| Metric | v0.1.0 |
+|--------|--------|
+| Test functions (`def test_*`) | **172** across `tests/` |
+| Coverage percentage | Not published yet; report in CI before v0.2.0 |
+| Security / gates focus | `pytest tests/test_security.py tests/test_verification.py -v` |
+
+## Troubleshooting and known limitations
+
+**[docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md)** covers common errors, debug
+mode (`pa -v`), worktree cleanup, router timeouts, and rejection-loop exhaustion.
+
+| Limitation | Notes |
+|------------|--------|
+| Python **3.11+** | Required by `requires-python` and shared FlossWare typing/runtime choices. |
+| Fedora Tier-1 | Primary dogfood path via `coding-agent-setup`; other platforms best-effort. |
+| `--max-iter` default **3** | Bounds cost and runaway reject loops; raise when feedback converges. |
+| Git `HEAD` dependency pins | Dogfood-only; pin tags/SHAs in v0.2.0+ ([docs/VERSIONING.md](docs/VERSIONING.md)). |
+| Worker untrusted vs host | Hard gates can force REJECT regardless of model output. |
+
+Rename migration: [docs/MIGRATION.md](docs/MIGRATION.md).
 
 ## License
 
