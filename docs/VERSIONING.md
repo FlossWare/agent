@@ -1,6 +1,6 @@
 # Dependency versioning strategy
 
-## Current policy (v0.1.0 dogfood)
+## Current policy (0.1 dogfood)
 
 Runtime dependencies in `pyproject.toml` resolve against the default branch
 (`HEAD`) of sibling FlossWare libraries:
@@ -14,13 +14,27 @@ Runtime dependencies in `pyproject.toml` resolve against the default branch
 This is intentional for dogfood: libraries move quickly and the stack is
 validated as a set. It is **not** suitable for long-lived reproducible deploys.
 
-## Target policy (v0.2.0+)
+## FlossWare release versioning
 
-1. Tag each FlossWare AI library with a release ref (`v0.2.0`, etc.).
-2. Pin every git dependency to a tag or full commit SHA:
+Release-version semantics are defined centrally by **FlossWare Engineering
+Standards ADR-0023: Two-Component Release Versioning**.
+
+FlossWare uses exactly two numeric components:
+
+```text
+0.1 → 0.2 → 0.3 → ... → 1.0 → 1.1 → 1.2 → ...
+```
+
+There are no patch releases. Git commit SHAs remain the precise immutable
+source-state identifiers.
+
+## Target dependency policy (0.2+)
+
+1. Tag each FlossWare AI library with a two-component release ref (`v0.2`, etc.).
+2. Pin every git dependency to a release tag or full commit SHA:
 
    ```toml
-   "model-router-ai @ git+https://github.com/FlossWare/model-router-ai.git@v0.2.0"
+   "model-router-ai @ git+https://github.com/FlossWare/model-router-ai.git@v0.2"
    ```
 
 3. Document breaking changes in this repository’s release notes / changelog.
