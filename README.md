@@ -131,7 +131,7 @@ asyncio.run(main())
 ```
 
 Configure provider credentials in the parent process via `coding-agent-setup`
-(or OS secret stores). Workers remain credential-free — see
+(or OS secret stores). Workers remain credential-free - see
 [docs/SECURITY.md](docs/SECURITY.md). Integration coverage lives under `tests/`
 (`test_agent.py`, `test_security.py`, `test_verification.py`).
 
@@ -162,10 +162,10 @@ pip install -e '.[dev]'
 pytest -q
 ```
 
-| Metric | v0.1.0 |
-|--------|--------|
+| Metric | 0.1 |
+|--------|-----|
 | Test functions (`def test_*`) | **172** across `tests/` |
-| Coverage percentage | Not published yet; report in CI before v0.2.0 |
+| Coverage percentage | Not published yet; report in CI before 0.2 |
 | Security / gates focus | `pytest tests/test_security.py tests/test_verification.py -v` |
 
 ## Troubleshooting and known limitations
@@ -178,7 +178,7 @@ mode (`pa -v`), worktree cleanup, router timeouts, and rejection-loop exhaustion
 | Python **3.11+** | Required by `requires-python` and shared FlossWare typing/runtime choices. |
 | Fedora Tier-1 | Primary dogfood path via `coding-agent-setup`; other platforms best-effort. |
 | `--max-iter` default **3** | Bounds cost and runaway reject loops; raise when feedback converges. |
-| Git `HEAD` dependency pins | Dogfood-only; pin tags/SHAs in v0.2.0+ ([docs/VERSIONING.md](docs/VERSIONING.md)). |
+| Git `HEAD` dependency pins | Dogfood-only; pin tags/SHAs in 0.2+ ([docs/VERSIONING.md](docs/VERSIONING.md)). |
 | Worker untrusted vs host | Hard gates can force REJECT regardless of model output. |
 
 Rename migration: [docs/MIGRATION.md](docs/MIGRATION.md).
