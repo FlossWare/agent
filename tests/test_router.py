@@ -6,106 +6,99 @@ from unittest.mock import patch
 import pytest
 
 from personal_agent.router import (
-    FREE_PROVIDERS,
-    PROVIDER_CONFIGS,
-    SimpleFreeRouter,
+    PROVIDERS,
+    SimpleRouter,
     _create_simple_router,
-    create_free_router,
+    _endpoint,
+    create_router,
 )
 
 
-class TestFreeProviders:
-    def test_all_have_env_key(self):
-        for name, cfg in FREE_PROVIDERS.items():
-            assert "env" in cfg, f"{name} missing 'env' key"
-
+class TestProviders:
     def test_expected_providers(self):
-        expected = {"groq", "cerebras", "openrouter", "gemini", "cohere", "huggingface"}
-        assert set(FREE_PROVIDERS.keys()) == expected
+        assert set(PROVIDERS) == {
+            "groq", "cerebras", "openrouter", "gemini", "cohere", "huggingface"
+        }
 
-
-class TestProviderConfigs:
-    def test_all_have_required_fields(self):
-        for cfg in PROVIDER_CONFIGS:
-            assert "name" in cfg
-            assert "env" in cfg
-            assert "url" in cfg
+    def test_provider_configs_have_required_fields(self):
+        for name, cfg in PROVIDERS.items():
+            assert cfg["name"] == name
+            assert cfg["env"]
             assert "model" in cfg
 
-    def test_cohere_marked(self):
-        cohere = [c for c in PROVIDER_CONFIGS if c["name"] == "cohere"]
-        assert len(cohere) == 1
-        assert cohere[0].get("is_cohere") is True
+    def test_endpoints_are_defined(self):
+        for name in PROVIDERS:
+            assert _endpoint(name).startswith("https://")
 
 
-class TestSimpleFreeRouter:
+class TestSimpleRouter:
     def test_init(self):
         providers = [{"name": "test", "key": "k", "url": "http://x", "model": "m"}]
-        r = SimpleFreeRouter(providers)
-        assert len(r._providers) == 1
+        router = SimpleRouter(providers)
+        assert router._providers == providers
 
     @pytest.mark.asyncio
     async def test_initialize_is_noop(self):
-        r = SimpleFreeRouter([])
-        await r.initialize()
+        await SimpleRouter([]).initialize()
 
     @pytest.mark.asyncio
     async def test_list_models_returns_empty(self):
-        r = SimpleFreeRouter([])
-        assert await r.list_models() == []
+        assert await SimpleRouter([]).list_models() == []
 
     @pytest.mark.asyncio
     async def test_all_providers_fail_raises(self):
-        r = SimpleFreeRouter([
+        router = SimpleRouter([
             {"name": "bad1", "key": "k", "url": "http://localhost:1", "model": "m"},
             {"name": "bad2", "key": "k", "url": "http://localhost:2", "model": "m"},
         ])
-        with pytest.raises(RuntimeError, match="All providers failed"):
-            await r.chat([{"role": "user", "content": "hi"}])
+        with pytest.raises(RuntimeError, match="All configured providers failed"):
+            await router.chat([{"role": "user", "content": "hi"}])
 
 
 class TestCreateSimpleRouter:
     def test_no_keys_raises(self):
-        env = {cfg["env"]: "" for cfg in PROVIDER_CONFIGS}
+        env = {cfg["env"]: "" for cfg in PROVIDERS.values()}
         with patch.dict(os.environ, env, clear=False):
             for key in env:
                 os.environ.pop(key, None)
-            with pytest.raises(RuntimeError, match="No API keys found"):
+            with pytest.raises(RuntimeError, match="No authenticated providers found"):
                 _create_simple_router()
 
-    def test_cohere_key_creates_router(self):
-        env_clear = {cfg["env"]: "" for cfg in PROVIDER_CONFIGS}
-        with patch.dict(os.environ, env_clear, clear=False):
-            for k in env_clear:
-                os.environ.pop(k, None)
-            os.environ["COHERE_API_KEY"] = "test-key"
-            r = _create_simple_router()
-            assert isinstance(r, SimpleFreeRouter)
-            assert any(p["name"] == "cohere" for p in r._providers)
+    def test_single_key_creates_router(self):
+        env = {cfg["env"]: "" for cfg in PROVIDERS.values()}
+        with patch.dict(os.environ, env, clear=False):
+            for key in env:
+                os.environ.pop(key, None)
+            os.environ["GROQ_API_KEY"] = "test-key"
+            router = _create_simple_router()
+            assert isinstance(router, SimpleRouter)
+            assert router._providers[0]["name"] == "groq"
+            assert router._providers[0]["key"] == "test-key"
 
-    def test_multiple_keys_creates_multi_provider(self):
-        env_clear = {cfg["env"]: "" for cfg in PROVIDER_CONFIGS}
-        with patch.dict(os.environ, env_clear, clear=False):
-            for k in env_clear:
-                os.environ.pop(k, None)
-            os.environ["COHERE_API_KEY"] = "key1"
-            os.environ["GROQ_API_KEY"] = "key2"
-            r = _create_simple_router()
-            assert len(r._providers) == 2
+    def test_multiple_keys_creates_multi_provider_router(self):
+        env = {cfg["env"]: "" for cfg in PROVIDERS.values()}
+        with patch.dict(os.environ, env, clear=False):
+            for key in env:
+                os.environ.pop(key, None)
+            os.environ["GROQ_API_KEY"] = "key1"
+            os.environ["CEREBRAS_API_KEY"] = "key2"
+            router = _create_simple_router()
+            assert isinstance(router, SimpleRouter)
+            assert {p["name"] for p in router._providers} == {"groq", "cerebras"}
 
 
-class TestCreateFreeRouter:
-    def test_falls_back_to_simple_when_no_model_router_ai(self):
-        with patch.dict(os.environ, {"COHERE_API_KEY": "test-key"}, clear=False), \
+class TestCreateRouter:
+    def test_falls_back_to_simple_when_model_router_unavailable(self):
+        with patch.dict(os.environ, {"GROQ_API_KEY": "test-key"}, clear=False), \
              patch("personal_agent.router._create_model_router_ai", side_effect=ImportError("no module")):
-            r = create_free_router()
-            assert isinstance(r, SimpleFreeRouter)
+            router = create_router()
+            assert isinstance(router, SimpleRouter)
 
     def test_no_keys_at_all_raises(self):
-        env = {cfg["env"]: "" for cfg in PROVIDER_CONFIGS}
+        env = {cfg["env"]: "" for cfg in PROVIDERS.values()}
         with patch.dict(os.environ, env, clear=False):
             for key in env:
                 os.environ.pop(key, None)
             with patch("personal_agent.router._create_model_router_ai", side_effect=ImportError("no module")):
-                with pytest.raises(RuntimeError, match="No API keys found"):
-                    create_free_router()
+                with pytest.raises(RuntimeError, match="No authenticated providers found"):
+                    create_router()
