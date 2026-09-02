@@ -1,6 +1,6 @@
-# coding-agent-ai
+# agent-ai
 
-FlossWare coding-agent execution/orchestration stack built around a provider-neutral **worker / arbiter** architecture.
+FlossWare provider-neutral agent execution/orchestration stack built around a **worker / arbiter** architecture.
 
 ## Core model
 
@@ -25,9 +25,13 @@ Work
 
 The arbiter is the synthesis boundary. Model-based consensus is one possible synthesis implementation, not a prerequisite for the architecture.
 
-## Coding-agent workflow
+## Workloads
 
-The repository also provides a concrete software-engineering worker/arbiter loop:
+The architecture is deliberately broader than coding. The same worker/arbiter machinery can support software implementation, code review, ADR review, architecture analysis, deterministic automation, MCP capabilities, model-backed workers, and composite workflows.
+
+## Coding workflow
+
+The repository provides a concrete software-engineering worker/arbiter loop:
 
 ```text
 Task -> isolated worktree -> Worker -> Tests -> Hard gates -> Arbiter -> Accept/Reject -> Apply
@@ -46,13 +50,13 @@ Provider, model, vendor, hosting topology, authentication mechanism, and pricing
 
 See `personal_agent/capability.py` for the generic capability-worker contract and `personal_agent/arbiter.py` for the coding-review arbiter.
 
-## Install on Fedora
+## Install
 
-For the current dogfood milestone, use `FlossWare/coding-agent-setup` as the installation entry point. Fedora is the Tier-1 supported installation target.
+Use `FlossWare/agent-setup` as the installation and configuration entry point. Fedora is the Tier-1 supported installation target.
 
 ```bash
-git clone https://github.com/FlossWare/coding-agent-setup.git
-cd coding-agent-setup
+git clone https://github.com/FlossWare/agent-setup.git
+cd agent-setup
 ./scripts/install.sh
 ```
 
