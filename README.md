@@ -1,6 +1,6 @@
-# coding-agent-ai
+# agent-ai
 
-FlossWare coding-agent execution/orchestration stack built around a provider-neutral **worker / arbiter** architecture.
+FlossWare's provider-neutral agent execution/orchestration stack built around a **worker / arbiter** architecture.
 
 ## Core model
 
@@ -25,9 +25,9 @@ Work
 
 The arbiter is the synthesis boundary. Model-based consensus is one possible synthesis implementation, not a prerequisite for the architecture.
 
-## Coding-agent workflow
+## Engineering workflow
 
-The repository also provides a concrete software-engineering worker/arbiter loop:
+The repository can provide a concrete software-engineering worker/arbiter loop:
 
 ```text
 Task -> isolated worktree -> Worker -> Tests -> Hard gates -> Arbiter -> Accept/Reject -> Apply
@@ -44,25 +44,31 @@ Task -> isolated worktree -> Worker -> Tests -> Hard gates -> Arbiter -> Accept/
 
 Provider, model, vendor, hosting topology, authentication mechanism, and pricing are **routing and policy inputs**, not architectural defaults. The runtime does not require or prefer a particular provider or pricing tier.
 
-See `personal_agent/capability.py` for the generic capability-worker contract and `personal_agent/arbiter.py` for the coding-review arbiter.
+See `personal_agent/capability.py` for the generic capability-worker contract and `personal_agent/arbiter.py` for the arbiter implementation.
 
-## Install on Fedora
+## Installation
 
-For the current dogfood milestone, use `FlossWare/coding-agent-setup` as the installation entry point. Fedora is the Tier-1 supported installation target.
+`agent-ai` is the execution/orchestration layer. Installation, profiles, provider/model discovery, diagnostics, and Crush provisioning belong to the separate `agent-setup` control plane.
+
+For normal installation, use the canonical `agent-setup` bootstrap documented at:
+
+https://github.com/FlossWare/agent-setup
+
+For development:
 
 ```bash
-git clone https://github.com/FlossWare/coding-agent-setup.git
-cd coding-agent-setup
-./scripts/install.sh
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -e '.[dev]'
+pytest -q
 ```
 
 ## Quick start
 
-After installation and explicit authentication/configuration:
+After the runtime is installed and explicit authentication/configuration is available:
 
 ```bash
 cd /path/to/your/git/repository
-source ~/.flossware/venv/bin/activate
 pa --investigate "What are the main components?" --repo .
 pa "Fix the failing test in test_auth.py" --repo . --commands pytest --max-iter 3
 ```
@@ -102,14 +108,15 @@ Credentials belong to the authentication boundary and must not be embedded in so
 - disposable worktrees
 - independent arbitration
 
-## Development
+## Architecture boundaries
 
-```bash
-python3 -m venv .venv
-source .venv/bin/activate
-pip install -e '.[dev]'
-pytest -q
-```
+- **agent-ai**: agent execution, workers, arbitration, iteration, and engineering workflow
+- **agent-setup**: installation, profiles, configuration, discovery, diagnostics, and external-agent setup
+- **model-router-ai**: provider/account/model routing and selection
+- **consensus-ai**: reusable consensus and arbitration strategies
+- **crush-demo**: integration and acceptance harness, not an architecture layer
+
+Existing capability libraries should be reused rather than duplicated. `agent-ai` remains provider-neutral and should not absorb setup or provider-specific concerns.
 
 ## License
 
