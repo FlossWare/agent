@@ -3,16 +3,16 @@ requires = ["setuptools>=68.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "coding-agent-ai"
+name = "agent-ai"
 version = "0.1.0"
-description = "FlossWare coding-agent execution/orchestration — worker/arbiter loop for real software-engineering workflows"
+description = "FlossWare provider-neutral agent execution and orchestration with worker/arbiter workflows"
 readme = "README.md"
 license = {text = "MIT"}
 requires-python = ">=3.11"
 authors = [
     {name = "Scot P. Floess", email = "sfloess@gmail.com"},
 ]
-keywords = ["ai", "coding-agent", "flossware", "model-routing", "agent-orchestration"]
+keywords = ["ai", "agent", "flossware", "model-routing", "orchestration"]
 classifiers = [
     "Development Status :: 3 - Alpha",
     "License :: OSI Approved :: MIT License",
@@ -45,7 +45,7 @@ dev = [
 pa = "personal_agent.cli:main"
 
 [project.urls]
-Repository = "https://github.com/FlossWare/coding-agent-ai"
+Repository = "https://github.com/FlossWare/agent-ai"
 
 [tool.setuptools.packages.find]
 include = ["personal_agent*"]
