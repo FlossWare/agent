@@ -12,7 +12,7 @@ class Decision(str, Enum):
     REJECT = "reject"
 
 
-@dataclass(frozen=True)
+@dataclass
 class Work:
     """Provider-neutral unit of work submitted to a capable worker."""
 
@@ -21,14 +21,38 @@ class Work:
     context: dict[str, Any] = field(default_factory=dict)
 
 
-@dataclass
+@dataclass(init=False)
 class Task(Work):
-    """Coding-task specialization carrying repository execution details."""
+    """Coding-task specialization carrying repository execution details.
+
+    The constructor preserves the legacy positional argument order while adding
+    the provider-neutral Work fields as optional keyword arguments.
+    """
 
     repo_path: str = ""
     files: list[str] = field(default_factory=list)
     commands: list[str] = field(default_factory=list)
     max_iterations: int = 3
+
+    def __init__(
+        self,
+        description: str,
+        repo_path: str,
+        files: list[str] | None = None,
+        commands: list[str] | None = None,
+        context: dict[str, Any] | None = None,
+        max_iterations: int = 3,
+        required_capabilities: frozenset[str] | None = None,
+    ) -> None:
+        super().__init__(
+            description=description,
+            required_capabilities=(required_capabilities or frozenset()),
+            context=(context if context is not None else {}),
+        )
+        self.repo_path = repo_path
+        self.files = files if files is not None else []
+        self.commands = commands if commands is not None else []
+        self.max_iterations = max_iterations
 
 
 @dataclass
@@ -59,23 +83,22 @@ class CommandResult:
 class WorkerResult:
     """Canonical evidence envelope returned by every worker.
 
-    The generic fields form the stable worker protocol. Coding-oriented fields
-    remain available for compatibility and are treated as structured evidence,
-    not as requirements imposed on non-coding workers.
+    Legacy coding fields remain first to preserve positional construction.
+    Generic fields form the stable provider-neutral worker protocol.
     """
 
-    worker: str = ""
-    success: bool = True
-    evidence: Any = None
-    confidence: float = 1.0
-    capabilities: frozenset[str] = frozenset()
-    metadata: dict[str, Any] = field(default_factory=dict)
     plan: str = ""
     findings: list[str] = field(default_factory=list)
     changes: list[FileChange] = field(default_factory=list)
     test_results: list[CommandResult] = field(default_factory=list)
     model_used: str = ""
     raw_response: str = ""
+    worker: str = ""
+    success: bool = True
+    evidence: Any = None
+    confidence: float = 1.0
+    capabilities: frozenset[str] = frozenset()
+    metadata: dict[str, Any] = field(default_factory=dict)
 
 
 @runtime_checkable
