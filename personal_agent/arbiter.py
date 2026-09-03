@@ -2,8 +2,8 @@
 
 Receives the original task, worker's plan/result, diff, and test results.
 Returns a structured ArbiterDecision. When the optional consensus-ai and
- evaluation-ai integrations are installed, an independent verification panel
- provides an additional gate before an LLM review can be accepted.
+evaluation-ai integrations are installed, an independent verification panel
+provides an additional gate before an LLM review can be accepted.
 """
 
 from __future__ import annotations
@@ -14,13 +14,7 @@ from typing import Any
 
 from personal_agent.repo import Repo
 from personal_agent.security import redact_secrets
-from personal_agent.types import (
-    ArbiterDecision,
-    ArbiterFinding,
-    Decision,
-    Task,
-    WorkerResult,
-)
+from personal_agent.types import ArbiterDecision, ArbiterFinding, Decision, Task, WorkerResult
 
 logger = logging.getLogger(__name__)
 
@@ -96,13 +90,7 @@ class _RouterBackend:
 
 
 class Arbiter:
-    """Reviews worker results and issues structured decisions.
-
-    The normal reviewer remains the first decision layer. If consensus-ai and
-    evaluation-ai are installed, independent adversarial verification is then
-    used as a second gate. A disagreement or uncertain verification cannot
-    result in acceptance.
-    """
+    """Review worker results and require independent verification when available."""
 
     def __init__(
         self,
@@ -118,7 +106,6 @@ class Arbiter:
         self._require_independent_verification = require_independent_verification
 
     async def review(self, task: Task, worker_result: WorkerResult) -> ArbiterDecision:
-        """Review worker changes and apply an independent verification gate."""
         decision = await self._review_with_llm(task, worker_result)
         verification = await self._independent_verification(task, worker_result)
         if verification is None:
@@ -127,12 +114,7 @@ class Arbiter:
                     decision=Decision.REJECT,
                     confidence=0.0,
                     reason="Independent verification is required but evaluation-ai is unavailable or no panel exists.",
-                    findings=[
-                        ArbiterFinding(
-                            severity="critical",
-                            description="No independent verification panel was available.",
-                        )
-                    ],
+                    findings=[ArbiterFinding(severity="critical", description="No independent verification panel was available.")],
                     required_changes=["Install/configure evaluation-ai with at least two independent models."],
                     model_used=decision.model_used,
                 )
@@ -143,10 +125,7 @@ class Arbiter:
             return ArbiterDecision(
                 decision=Decision.REJECT,
                 confidence=confidence,
-                reason=(
-                    f"Independent verification returned {verdict}; "
-                    "the worker result is not safe to accept."
-                ),
+                reason=f"Independent verification returned {verdict}; the worker result is not safe to accept.",
                 findings=[
                     ArbiterFinding(
                         severity="high" if verdict == "UNCERTAIN" else "critical",
@@ -159,45 +138,30 @@ class Arbiter:
 
         if decision.decision != Decision.ACCEPT:
             return decision
-
-        decision.metadata = getattr(decision, "metadata", {})
         return ArbiterDecision(
             decision=Decision.ACCEPT,
             confidence=min(decision.confidence, confidence),
-            reason=(
-                decision.reason
-                + f" Independent verification confirmed by {len(panel_models)} panel models."
-            ),
+            reason=decision.reason + f" Independent verification confirmed by {len(panel_models)} panel models.",
             findings=decision.findings,
             required_changes=decision.required_changes,
             model_used=decision.model_used,
         )
 
-    async def _review_with_llm(
-        self, task: Task, worker_result: WorkerResult
-    ) -> ArbiterDecision:
+    async def _review_with_llm(self, task: Task, worker_result: WorkerResult) -> ArbiterDecision:
         diff = redact_secrets(self._repo.git_diff())
         tree = self._repo.tree(max_depth=2)
         test_summary = "\n".join(
-            f"$ {r.command}\n  exit={r.returncode}\n  "
-            f"{redact_secrets(r.stdout[:500])}\n  {redact_secrets(r.stderr[:500])}"
+            f"$ {r.command}\n  exit={r.returncode}\n  {redact_secrets(r.stdout[:500])}\n  {redact_secrets(r.stderr[:500])}"
             for r in worker_result.test_results
         ) or "(no tests run)"
-
         changed_files = ""
         for change in worker_result.changes:
             try:
                 content = self._repo.read_file(change.path)
-                changed_files += (
-                    f"\n=== {change.path} (after change) ===\n"
-                    f"{redact_secrets(content[:5000])}\n"
-                )
+                changed_files += f"\n=== {change.path} (after change) ===\n{redact_secrets(content[:5000])}\n"
             except Exception:
                 continue
-
-        findings_text = "\n".join(
-            f"- {redact_secrets(f)}" for f in worker_result.findings
-        ) or "(none)"
+        findings_text = "\n".join(f"- {redact_secrets(f)}" for f in worker_result.findings) or "(none)"
         prompt = REVIEW_PROMPT.format(
             task_description=task.description,
             plan=redact_secrets(worker_result.plan),
@@ -212,15 +176,11 @@ class Arbiter:
         )
         return self._parse_decision(resp)
 
-    async def _independent_verification(
-        self, task: Task, worker_result: WorkerResult
-    ) -> tuple[str, float, list[str]] | None:
-        """Run evaluation-ai adversarial verification and consensus aggregation."""
+    async def _independent_verification(self, task: Task, worker_result: WorkerResult) -> tuple[str, float, list[str]] | None:
         try:
             from evaluation_ai import AdversarialVerifier
         except ImportError:
             return None
-
         try:
             models = await self._router.list_models()
         except (AttributeError, TypeError, RuntimeError):
@@ -232,39 +192,34 @@ class Arbiter:
         ]
         if len(model_ids) < 2:
             return None
-
-        candidate = self._verification_candidate(worker_result)
         verifier = AdversarialVerifier(
             backend=_RouterBackend(self._router),
             available_models=model_ids,
             panel_size=self._verification_panel_size,
         )
         result = await verifier.verify(
-            candidate,
+            self._verification_candidate(worker_result),
             task=task.description,
             candidate_model=worker_result.model_used,
         )
-
         verdict = result.verdict
         confidence = result.confidence
         try:
             from consensus_ai import ChatResponse, MajorityVoteStrategy
 
             votes = [
-                ChatResponse(
-                    content=item.verdict,
-                    model=item.model,
-                    provider="evaluation-ai",
-                )
+                ChatResponse(content=item.verdict, model=item.model, provider="evaluation-ai")
                 for item in result.panel_results
             ]
             if votes:
                 outcome = MajorityVoteStrategy().select(votes)
                 verdict = outcome.selected.content
-                confidence = outcome.scores.get(outcome.selected.model, confidence)
-        except (ImportError, AttributeError, TypeError, KeyError):
+                selected_index = next(
+                    i for i, item in enumerate(votes) if item.model == outcome.selected.model
+                )
+                confidence = outcome.scores[selected_index]
+        except (ImportError, AttributeError, TypeError, KeyError, StopIteration):
             logger.debug("Consensus aggregation unavailable; using evaluation result")
-
         return verdict, confidence, result.panel_models
 
     @staticmethod
@@ -322,19 +277,14 @@ class Arbiter:
         )
 
     def format_feedback(self, decision: ArbiterDecision) -> str:
-        parts = [f"DECISION: {decision.decision.value.upper()}"]
-        parts.append(f"REASON: {redact_secrets(decision.reason)}")
+        parts = [f"DECISION: {decision.decision.value.upper()}", f"REASON: {redact_secrets(decision.reason)}"]
         if decision.findings:
             parts.append("\nFINDINGS:")
             for finding in decision.findings:
                 parts.append(
                     f"  [{finding.severity.upper()}] {redact_secrets(finding.description)}"
                     + (f" (in {finding.file})" if finding.file else "")
-                    + (
-                        f"\n    Suggestion: {redact_secrets(finding.suggestion)}"
-                        if finding.suggestion
-                        else ""
-                    )
+                    + (f"\n    Suggestion: {redact_secrets(finding.suggestion)}" if finding.suggestion else "")
                 )
         if decision.required_changes:
             parts.append("\nREQUIRED CHANGES:")
