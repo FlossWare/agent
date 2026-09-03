@@ -70,8 +70,7 @@ def test_routes_configured_accounts_and_preserves_account_identity(monkeypatch):
         "openrouter-main",
     ]
     assert calls["providers"][0][1] == "groq-secret"
-    assert isinstance(router.wrapped, calls.__class__) is False
-    assert len(calls["providers"]) == 2
+    assert router.wrapped.providers is calls["providers"]
 
 
 def test_free_only_registers_only_free_capable_accounts_and_filters_openrouter(monkeypatch):
