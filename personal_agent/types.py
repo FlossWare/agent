@@ -1,10 +1,10 @@
-"""Data types for personal-agent workflows."""
+"""Canonical provider-neutral work and result contracts."""
 
 from __future__ import annotations
 
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any
+from typing import Any, Protocol, runtime_checkable
 
 
 class Decision(str, Enum):
@@ -13,15 +13,46 @@ class Decision(str, Enum):
 
 
 @dataclass
-class Task:
-    """A coding task to be executed by workers."""
+class Work:
+    """Provider-neutral unit of work submitted to a capable worker."""
 
     description: str
-    repo_path: str
+    required_capabilities: frozenset[str] = frozenset()
+    context: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass(init=False)
+class Task(Work):
+    """Coding-task specialization carrying repository execution details.
+
+    The constructor preserves the legacy positional argument order while adding
+    the provider-neutral Work fields as optional keyword arguments.
+    """
+
+    repo_path: str = ""
     files: list[str] = field(default_factory=list)
     commands: list[str] = field(default_factory=list)
-    context: dict[str, Any] = field(default_factory=dict)
     max_iterations: int = 3
+
+    def __init__(
+        self,
+        description: str,
+        repo_path: str = "",
+        files: list[str] | None = None,
+        commands: list[str] | None = None,
+        context: dict[str, Any] | None = None,
+        max_iterations: int = 3,
+        required_capabilities: frozenset[str] | None = None,
+    ) -> None:
+        super().__init__(
+            description=description,
+            required_capabilities=(required_capabilities or frozenset()),
+            context=(context if context is not None else {}),
+        )
+        self.repo_path = repo_path
+        self.files = files if files is not None else []
+        self.commands = commands if commands is not None else []
+        self.max_iterations = max_iterations
 
 
 @dataclass
@@ -50,7 +81,20 @@ class CommandResult:
 
 @dataclass
 class WorkerResult:
-    """Output from a worker's investigation/implementation phase."""
+    """Canonical evidence envelope returned by every worker.
+
+    Provider-neutral fields form the stable generic contract and should be the
+    primary surface for new consumers:
+
+    - ``worker``, ``success``, ``evidence``, ``confidence``, ``capabilities``,
+      ``metadata``
+
+    Coding-oriented fields (``plan``, ``findings``, ``changes``,
+    ``test_results``, ``model_used``, ``raw_response``) remain first only to
+    preserve legacy positional construction. Treat them as transitional
+    compatibility fields; a later cleanup may relocate or remove them once
+    call sites no longer depend on them.
+    """
 
     plan: str = ""
     findings: list[str] = field(default_factory=list)
@@ -58,6 +102,25 @@ class WorkerResult:
     test_results: list[CommandResult] = field(default_factory=list)
     model_used: str = ""
     raw_response: str = ""
+    worker: str = ""
+    success: bool = True
+    evidence: Any = None
+    confidence: float = 1.0
+    capabilities: frozenset[str] = frozenset()
+    metadata: dict[str, Any] = field(default_factory=dict)
+
+
+@runtime_checkable
+class CapableWorker(Protocol):
+    """Canonical executable worker contract."""
+
+    @property
+    def name(self) -> str: ...
+
+    @property
+    def capabilities(self) -> frozenset[str]: ...
+
+    async def execute(self, work: Work) -> WorkerResult: ...
 
 
 @dataclass
