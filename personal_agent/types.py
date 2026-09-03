@@ -1,10 +1,10 @@
-"""Data types for personal-agent workflows."""
+"""Canonical provider-neutral work and result contracts."""
 
 from __future__ import annotations
 
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any
+from typing import Any, Protocol
 
 
 class Decision(str, Enum):
@@ -12,15 +12,22 @@ class Decision(str, Enum):
     REJECT = "reject"
 
 
-@dataclass
-class Task:
-    """A coding task to be executed by workers."""
+@dataclass(frozen=True)
+class Work:
+    """Provider-neutral unit of work submitted to a capable worker."""
 
     description: str
-    repo_path: str
+    required_capabilities: frozenset[str] = frozenset()
+    context: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass
+class Task(Work):
+    """Coding-task specialization carrying repository execution details."""
+
+    repo_path: str = ""
     files: list[str] = field(default_factory=list)
     commands: list[str] = field(default_factory=list)
-    context: dict[str, Any] = field(default_factory=dict)
     max_iterations: int = 3
 
 
@@ -50,14 +57,37 @@ class CommandResult:
 
 @dataclass
 class WorkerResult:
-    """Output from a worker's investigation/implementation phase."""
+    """Canonical evidence envelope returned by every worker.
 
+    The generic fields form the stable worker protocol. Coding-oriented fields
+    remain available for compatibility and are treated as structured evidence,
+    not as requirements imposed on non-coding workers.
+    """
+
+    worker: str = ""
+    success: bool = True
+    evidence: Any = None
+    confidence: float = 1.0
+    capabilities: frozenset[str] = frozenset()
+    metadata: dict[str, Any] = field(default_factory=dict)
     plan: str = ""
     findings: list[str] = field(default_factory=list)
     changes: list[FileChange] = field(default_factory=list)
     test_results: list[CommandResult] = field(default_factory=list)
     model_used: str = ""
     raw_response: str = ""
+
+
+class CapableWorker(Protocol):
+    """Canonical executable worker contract."""
+
+    @property
+    def name(self) -> str: ...
+
+    @property
+    def capabilities(self) -> frozenset[str]: ...
+
+    async def execute(self, work: Work) -> WorkerResult: ...
 
 
 @dataclass
