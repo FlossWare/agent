@@ -37,7 +37,7 @@ class Task(Work):
     def __init__(
         self,
         description: str,
-        repo_path: str,
+        repo_path: str = "",
         files: list[str] | None = None,
         commands: list[str] | None = None,
         context: dict[str, Any] | None = None,
