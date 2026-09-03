@@ -47,7 +47,9 @@ class CodingWorkerAdapter:
             "changes": result.changes,
             "test_results": result.test_results,
         }
+        # Merge so routing/provenance already set by the underlying worker is kept.
         result.metadata = {
+            **(result.metadata or {}),
             "model": result.model_used,
             "execution": "coding-worker",
         }

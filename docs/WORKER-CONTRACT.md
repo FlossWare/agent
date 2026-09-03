@@ -44,8 +44,11 @@ local model, a hosted model, a test runner, or a composite worker.
 - `metadata`
 
 Coding workers may additionally populate `plan`, `findings`, `changes`,
-`test_results`, `model_used`, and `raw_response`. These are compatibility and
-structured-evidence fields, not requirements for every worker.
+`test_results`, `model_used`, and `raw_response`. These are **transitional
+compatibility fields** retained for the existing coding worker path. They are
+not part of the long-term generic contract; new consumers should prefer the
+provider-neutral fields above. A later cleanup can move or remove the coding
+fields once compatibility is no longer required.
 
 ## Provider boundary
 

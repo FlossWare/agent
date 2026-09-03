@@ -1,8 +1,11 @@
 """Tests for the canonical provider-neutral worker contract."""
 
-import pytest
+from __future__ import annotations
+
+import asyncio
 
 from personal_agent.capability import CapabilityArbiter, FunctionWorker
+from personal_agent.coding_worker import CodingWorkerAdapter
 from personal_agent.types import CapableWorker, Task, Work, WorkerResult
 
 
@@ -24,11 +27,12 @@ def test_task_is_a_work_specialization():
     assert task.repo_path == "/repo"
 
 
-@pytest.mark.asyncio
-async def test_function_worker_returns_canonical_result():
+def test_function_worker_returns_canonical_result():
     worker = FunctionWorker("checker", {"test"}, lambda work: work.description)
 
-    result = await worker.execute(Work(description="check", required_capabilities=frozenset({"test"})))
+    result = asyncio.run(
+        worker.execute(Work(description="check", required_capabilities=frozenset({"test"})))
+    )
 
     assert isinstance(result, WorkerResult)
     assert result.worker == "checker"
@@ -37,13 +41,12 @@ async def test_function_worker_returns_canonical_result():
     assert result.capabilities == frozenset({"test"})
 
 
-@pytest.mark.asyncio
-async def test_capability_arbiter_consumes_canonical_result():
+def test_capability_arbiter_consumes_canonical_result():
     worker = FunctionWorker("checker", {"test"}, lambda work: "accepted")
     arbiter = CapabilityArbiter([worker])
 
-    synthesis = await arbiter.execute(
-        Work(description="check", required_capabilities=frozenset({"test"}))
+    synthesis = asyncio.run(
+        arbiter.execute(Work(description="check", required_capabilities=frozenset({"test"})))
     )
 
     assert synthesis.conclusion == "accepted"
@@ -55,3 +58,24 @@ def test_canonical_worker_protocol_is_runtime_shape():
     worker = FunctionWorker("checker", {"test"}, lambda work: "ok")
 
     assert isinstance(worker, CapableWorker)
+
+
+def test_coding_worker_adapter_merges_metadata():
+    """Pre-existing routing provenance on WorkerResult must survive adaptation."""
+
+    class _StubWorker:
+        async def investigate(self, task):
+            return WorkerResult(
+                plan="p",
+                model_used="unit-model",
+                metadata={"route": "preferred", "account": "free"},
+            )
+
+    adapter = CodingWorkerAdapter(_StubWorker(), name="coding-worker")
+    result = asyncio.run(adapter.execute(Work(description="inspect")))
+
+    assert result.metadata["route"] == "preferred"
+    assert result.metadata["account"] == "free"
+    assert result.metadata["model"] == "unit-model"
+    assert result.metadata["execution"] == "coding-worker"
+    assert result.worker == "coding-worker"

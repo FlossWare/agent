@@ -83,8 +83,17 @@ class CommandResult:
 class WorkerResult:
     """Canonical evidence envelope returned by every worker.
 
-    Legacy coding fields remain first to preserve positional construction.
-    Generic fields form the stable provider-neutral worker protocol.
+    Provider-neutral fields form the stable generic contract and should be the
+    primary surface for new consumers:
+
+    - ``worker``, ``success``, ``evidence``, ``confidence``, ``capabilities``,
+      ``metadata``
+
+    Coding-oriented fields (``plan``, ``findings``, ``changes``,
+    ``test_results``, ``model_used``, ``raw_response``) remain first only to
+    preserve legacy positional construction. Treat them as transitional
+    compatibility fields; a later cleanup may relocate or remove them once
+    call sites no longer depend on them.
     """
 
     plan: str = ""

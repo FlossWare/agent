@@ -33,26 +33,26 @@ class TestSimpleRouter:
         r = SimpleRouter(providers)
         assert len(r._providers) == 1
 
-    @pytest.mark.asyncio
-    async def test_initialize_is_noop(self):
+    def test_initialize_is_noop(self):
+        import asyncio
         r = SimpleRouter([])
-        await r.initialize()
+        asyncio.run(r.initialize())
 
-    @pytest.mark.asyncio
-    async def test_list_models_returns_empty(self):
+    def test_list_models_returns_empty(self):
+        import asyncio
         r = SimpleRouter([])
-        assert await r.list_models() == []
+        assert asyncio.run(r.list_models()) == []
 
-    @pytest.mark.asyncio
-    async def test_all_providers_fail_raises(self):
+    def test_all_providers_fail_raises(self):
         r = SimpleRouter(
             [
                 {"name": "bad1", "key": "k", "url": "http://localhost:1", "model": "m"},
                 {"name": "bad2", "key": "k", "url": "http://localhost:2", "model": "m"},
             ]
         )
+        import asyncio
         with pytest.raises(RuntimeError, match="All configured providers failed"):
-            await r.chat([{"role": "user", "content": "hi"}])
+            asyncio.run(r.chat([{"role": "user", "content": "hi"}]))
 
 
 class TestCreateSimpleRouter:
