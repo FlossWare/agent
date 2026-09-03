@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any, Protocol
+from typing import Any, Protocol, runtime_checkable
 
 
 class Decision(str, Enum):
@@ -78,6 +78,7 @@ class WorkerResult:
     raw_response: str = ""
 
 
+@runtime_checkable
 class CapableWorker(Protocol):
     """Canonical executable worker contract."""
 
