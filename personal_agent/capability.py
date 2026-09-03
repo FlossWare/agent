@@ -9,25 +9,20 @@ from __future__ import annotations
 
 import asyncio
 import inspect
+from dataclasses import dataclass
 from typing import Any, Sequence
 
 from personal_agent.types import CapableWorker, Work, WorkerResult
 
 
+@dataclass(frozen=True)
 class Synthesis:
     """Arbiter's synthesized answer and supporting evidence."""
 
-    def __init__(
-        self,
-        conclusion: Any,
-        results: tuple[WorkerResult, ...],
-        confidence: float,
-        disagreements: tuple[str, ...] = (),
-    ) -> None:
-        self.conclusion = conclusion
-        self.results = results
-        self.confidence = confidence
-        self.disagreements = disagreements
+    conclusion: Any
+    results: tuple[WorkerResult, ...]
+    confidence: float
+    disagreements: tuple[str, ...] = ()
 
 
 class CapabilityArbiter:
@@ -73,7 +68,7 @@ class CapabilityArbiter:
         confidence = sum(
             max(0.0, min(1.0, r.confidence)) for r in successful
         ) / len(successful)
-        conclusion: Any = evidence[0] if len(evidence) == 1 else evidence
+        conclusion: Any = evidence[0] if len(successful) == 1 else evidence
         return Synthesis(conclusion, tuple(results), confidence, disagreements)
 
 
