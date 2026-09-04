@@ -34,7 +34,7 @@ all = [
     "workflow-ai @ git+https://github.com/FlossWare/workflow-ai.git",
 ]
 tui = [
-    "curses-themes @ git+https://github.com/FlossWare/curses-themes.git",
+    "curses-tui @ git+https://github.com/FlossWare/curses-tui.git",
 ]
 dev = [
     "pytest>=7.0",
@@ -45,7 +45,7 @@ dev = [
 pa = "personal_agent.cli:main"
 
 [project.urls]
-Repository = "https://github.com/FlossWare/agent-ai"
+Repository = "https://github.com/FlossWare/agent"
 
 [tool.setuptools.packages.find]
 include = ["personal_agent*"]
