@@ -20,18 +20,18 @@ classifiers = [
 ]
 
 dependencies = [
-    "model-router-ai @ git+https://github.com/FlossWare/model-router-ai.git",
-    "resilience-ai @ git+https://github.com/FlossWare/resilience-ai.git",
-    "structured-output-ai @ git+https://github.com/FlossWare/structured-output-ai.git",
+    "model-router-ai @ git+https://github.com/FlossWare/model-router.git@6c159fecc94ebd9e6e8e8ae32a8f7ab57693202f",
+    "resilience-ai @ git+https://github.com/FlossWare/resilience.git@b4a11f80bfe4b9a879b95b724d143d92cb548c47",
+    "structured-output-ai @ git+https://github.com/FlossWare/structured-output.git@9584f13877afa60307a9f9bca950caef0ff3b542",
 ]
 
 [project.optional-dependencies]
 all = [
-    "consensus-ai @ git+https://github.com/FlossWare/consensus-ai.git",
-    "evaluation-ai @ git+https://github.com/FlossWare/evaluation-ai.git",
-    "observability-ai @ git+https://github.com/FlossWare/observability-ai.git",
-    "security-ai @ git+https://github.com/FlossWare/security-ai.git",
-    "workflow-ai @ git+https://github.com/FlossWare/workflow-ai.git",
+    "consensus-ai @ git+https://github.com/FlossWare/consensus.git@8a7c76893b76b26e097dffe4db578b64f0238996",
+    "evaluation-ai @ git+https://github.com/FlossWare/evaluation.git@790d56dfb87c704a215253c94ee97408cc3dba51",
+    "observability-ai @ git+https://github.com/FlossWare/observability.git@f2bf65b8d2318594727d6e7641eba897b07f201a",
+    "security-ai @ git+https://github.com/FlossWare/security.git@7a19820af85af14818773ba579e42d8943654365",
+    "workflow-ai @ git+https://github.com/FlossWare/workflow.git@cba80a46a95d28b3076200c82a7eb67c1273670f",
 ]
 tui = [
     "curses-tui @ git+https://github.com/FlossWare/curses-tui.git",
