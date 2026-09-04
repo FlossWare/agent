@@ -34,7 +34,7 @@ all = [
     "workflow-ai @ git+https://github.com/FlossWare/workflow.git@cba80a46a95d28b3076200c82a7eb67c1273670f",
 ]
 tui = [
-    "curses-tui @ git+https://github.com/FlossWare/curses-tui.git",
+    "curses-tui @ git+https://github.com/FlossWare/curses-tui.git@84458a18ae4c47a9f31d7233f5a6cf565c0c2c1f",
 ]
 dev = [
     "pytest>=7.0",
