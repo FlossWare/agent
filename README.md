@@ -27,8 +27,6 @@ The arbiter is the synthesis boundary. Model-based consensus is one possible syn
 
 ## Engineering workflow
 
-The repository can provide a concrete software-engineering worker/arbiter loop:
-
 ```text
 Task -> isolated worktree -> Worker -> Tests -> Hard gates -> Arbiter -> Accept/Reject -> Apply
 ```
@@ -65,8 +63,6 @@ pytest -q
 
 ## Quick start
 
-After the runtime is installed and explicit authentication/configuration is available:
-
 ```bash
 cd /path/to/your/git/repository
 pa --investigate "What are the main components?" --repo .
@@ -75,7 +71,17 @@ pa "Fix the failing test in test_auth.py" --repo . --commands pytest --max-iter 
 
 Do not use `--commit` on the first dogfood run. Review the generated diff and verification results first.
 
-## Generic capability API
+## Usage examples
+
+### CLI
+
+```bash
+pa --investigate "What are the main components?" --repo .
+pa "Fix the failing test in test_auth.py" --repo . --commands pytest --max-iter 3
+pa -v "Summarize the security model" --repo . --json
+```
+
+### Python API, provider-neutral workers
 
 ```python
 import asyncio
@@ -94,19 +100,63 @@ async def main():
 asyncio.run(main())
 ```
 
-This API deliberately has no provider-specific dependency. A model-backed worker can be added without changing the work or arbiter contracts.
+### Python API, coding loop
 
-## Credentials
+```python
+import asyncio
+from personal_agent import CodingAgent
+from personal_agent.types import Task
 
-Credentials belong to the authentication boundary and must not be embedded in source, generated configuration, images, or Git history. Existing authenticated CLI/session capabilities SHOULD be reused where supported rather than requiring duplicate credentials.
+async def main():
+    repo = "/path/to/git/repository"
+    agent = CodingAgent(repo, max_iterations=3)
+    task = Task(
+        description="Fix the failing test in test_auth.py",
+        repo_path=repo,
+        commands=["pytest"],
+        max_iterations=3,
+    )
+    result = await agent.run(task)
+    print(result.decision, result.iterations)
+    # Review result.final_diff and result.arbiter_decisions before any commit.
 
-## Safety
+asyncio.run(main())
+```
 
-- command policy and filesystem confinement
-- credential isolation and secret redaction
+Configure provider credentials in the parent process via `agent-setup` or an OS secret store. Workers remain credential-free. Integration coverage lives under `tests/`.
+
+## Credentials and safety
+
+Credentials belong to the authentication boundary and must not be embedded in source, generated configuration, images, or Git history.
+
+- command policy and filesystem confinement (`docs/COMMAND-POLICY.md`)
+- credential isolation and secret redaction (`docs/SECURITY.md`)
 - deterministic verification gates
 - disposable worktrees
 - independent arbitration
+
+See [`docs/SECURITY.md`](docs/SECURITY.md) for the threat model and credential boundaries.
+
+## Testing
+
+```bash
+pytest -q
+```
+
+The repository contains focused tests for worker contracts, arbitration, routing, security, verification, repository operations, and the end-to-end agent loop. Coverage is measured in CI rather than represented by a hand-maintained percentage in this README.
+
+## Troubleshooting and known limitations
+
+See [`docs/TROUBLESHOOTING.md`](docs/TROUBLESHOOTING.md) for common installation, credential, worktree, router, and rejection-loop failures.
+
+| Limitation | Notes |
+|------------|-------|
+| Python **3.11+** | Required by `requires-python`. |
+| Fedora Tier-1 | Primary dogfood path via `agent-setup`; other platforms are best-effort. |
+| `--max-iter` default **3** | Bounds cost and runaway reject loops. |
+| Git `HEAD` dependency pins | Dogfood policy; use release tags or immutable SHAs for reproducible releases. |
+
+Dependency policy is documented in [`docs/VERSIONING.md`](docs/VERSIONING.md).
 
 ## Architecture boundaries
 
