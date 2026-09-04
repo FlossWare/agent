@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 
 import pytest
@@ -13,7 +14,8 @@ def test_create_pull_request_parses_machine_output(monkeypatch: pytest.MonkeyPat
 
     def fake_run(command, **kwargs):
         calls.append(command)
-        assert "GH_TOKEN" not in kwargs["env"]
+        assert kwargs["env"]["GH_TOKEN"] == "test-token"
+        assert kwargs["env"]["GITHUB_TOKEN"] == "test-token-2"
         return subprocess.CompletedProcess(
             command,
             0,
@@ -21,6 +23,8 @@ def test_create_pull_request_parses_machine_output(monkeypatch: pytest.MonkeyPat
             stderr="",
         )
 
+    monkeypatch.setenv("GH_TOKEN", "test-token")
+    monkeypatch.setenv("GITHUB_TOKEN", "test-token-2")
     monkeypatch.setattr(subprocess, "run", fake_run)
     pr = GitHubClient("FlossWare/agent").create_pull_request(
         title="Fix",
@@ -32,6 +36,15 @@ def test_create_pull_request_parses_machine_output(monkeypatch: pytest.MonkeyPat
     assert pr.title == "Fix"
     assert calls[0][0] == "gh"
     assert "--repo" in calls[0]
+
+
+def test_github_client_does_not_persist_credentials(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("GH_TOKEN", "secret")
+    client = GitHubClient("FlossWare/agent")
+    assert client.repository == "FlossWare/agent"
+    assert client.timeout == 30
+    assert not hasattr(client, "token")
+    assert not hasattr(client, "credential")
 
 
 def test_missing_gh_is_reported(monkeypatch: pytest.MonkeyPatch) -> None:
