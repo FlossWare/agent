@@ -1,9 +1,9 @@
 """GitHub CLI integration for guarded repository publication.
 
 The adapter deliberately uses the authenticated ``gh`` CLI instead of storing
-GitHub credentials in the agent process. It is an integration boundary, not a
-second Git implementation. All mutating operations are explicit methods so
-callers can map them to the autonomous-engineering authority levels.
+GitHub credentials in agent state. It is an integration boundary, not a second
+Git implementation. All mutating operations are explicit methods so callers
+can map them to the autonomous-engineering authority levels.
 """
 
 from __future__ import annotations
@@ -29,7 +29,12 @@ class PullRequest:
 
 
 class GitHubClient:
-    """Small, credential-free GitHub adapter backed by ``gh``."""
+    """Small GitHub adapter backed by ``gh``.
+
+    Authentication remains owned by the trusted parent environment or gh's
+    credential store. The client does not persist, serialize, or place tokens
+    in worker results, task state, prompts, or repository files.
+    """
 
     def __init__(self, repository: str | None = None, *, timeout: int = 30) -> None:
         self.repository = repository
@@ -39,11 +44,10 @@ class GitHubClient:
         command = ["gh", *args]
         if self.repository and "--repo" not in command:
             command.extend(["--repo", self.repository])
+        # Preserve gh's authentication environment. These credentials are
+        # consumed only by the trusted GitHub adapter and are never copied into
+        # worker state. In CI, GH_TOKEN/GITHUB_TOKEN is the normal gh contract.
         env = dict(os.environ)
-        env.pop("GITHUB_TOKEN", None)
-        env.pop("GH_TOKEN", None)
-        # gh authentication is intentionally delegated to gh's configured
-        # credential store / host auth. Do not copy tokens into worker state.
         try:
             result = subprocess.run(
                 command,
